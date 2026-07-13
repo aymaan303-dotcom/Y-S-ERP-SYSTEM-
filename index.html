@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>نظام إدارة الحسابات المتكامل</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b1220;
+    --sidebar:#0f1a2e;
+    --sidebar-hover:#16223b;
+    --panel:#101a2d;
+    --card:#12203a;
+    --border:#1e2b45;
+    --text:#e7ecf5;
+    --muted:#8b98b3;
+    --accent:#3b82f6;
+    --green:#22c55e;
+    --amber:#f59e0b;
+    --red:#ef4444;
+    --violet:#8b5cf6;
+    --teal:#14b8a6;
+    --gold:#eab308;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:'Cairo', sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    overflow-x:hidden;
+  }
+  ::-webkit-scrollbar{width:8px; height:8px;}
+  ::-webkit-scrollbar-thumb{background:#243452; border-radius:8px;}
+
+  /* ===== Login Screen ===== */
+  #loginScreen{
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 30% 20%, #142442 0%, #0b1220 60%);
+    z-index:200;
+  }
+  .login-box{
+    width:92%; max-width:380px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:18px;
+    padding:32px 28px;
+    box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  .login-logo{
+    width:56px; height:56px; border-radius:14px;
+    background:linear-gradient(135deg, var(--accent), var(--violet));
+    display:flex; align-items:center; justify-content:center;
+    font-size:26px; margin:0 auto 14px;
+  }
+  .login-box h1{ text-align:center; font-size:19px; margin-bottom:4px;}
+  .login-box p.sub{ text-align:center; color:var(--muted); font-size:13px; margin-bottom:24px;}
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:13px; color:var(--muted); margin-bottom:6px;}
+  .field input, .field select{
+    width:100%; padding:12px 14px; border-radius:10px;
+    background:#0c1526; border:1px solid var(--border); color:var(--text);
+    font-family:'Cairo'; font-size:14px; outline:none;
+  }
+  .field input:focus{ border-color:var(--accent); }
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:12px 18px; border-radius:10px; border:none; cursor:pointer;
+    font-family:'Cairo'; font-weight:600; font-size:14px;
+    transition:.15s ease;
+  }
+  .btn-primary{ background:var(--accent); color:#fff; width:100%; margin-top:6px;}
+  .btn-primary:hover{ background:#2f6fe0; }
+  .btn-ghost{ background:transparent; color:var(--muted); border:1px solid var(--border); }
+  .btn-ghost:hover{ color:var(--text); border-color:#33456b;}
+  .login-msg{ font-size:12.5px; text-align:center; margin-top:12px; min-height:16px; }
+  .login-msg.err{ color:var(--red); }
+  .login-msg.ok{ color:var(--green); }
+  .login-toggle{ text-align:center; margin-top:16px; font-size:12.5px; color:var(--muted);}
+  .login-toggle a{ color:var(--accent); cursor:pointer; text-decoration:none; }
+
+  /* ===== App Shell ===== */
+  #app{ display:none; }
+  .shell{ display:flex; min-height:100vh; }
+
+  /* Sidebar */
+  .sidebar{
+    width:250px; flex-shrink:0; background:var(--sidebar);
+    border-left:1px solid var(--border);
+    display:flex; flex-direction:column;
+    position:fixed; top:0; bottom:0; right:0; z-index:50;
+    transition:transform .25s ease;
+  }
+  .sidebar-brand{
+    display:flex; align-items:center; gap:10px; padding:20px 18px;
+    border-bottom:1px solid var(--border);
+  }
+  .brand-icon{
+    width:38px; height:38px; border-radius:10px;
+    background:linear-gradient(135deg, var(--accent), var(--violet));
+    display:flex; align-items:center; justify-content:center; font-size:18px;
+  }
+  .brand-text b{ font-size:14.5px; display:block; }
+  .brand-text span{ font-size:11px; color:var(--muted); }
+  .nav-scroll{ flex:1; overflow-y:auto; padding:14px 10px; }
+  .nav-group-title{
+    font-size:11px; color:var(--muted); padding:14px 10px 6px;
+    text-transform:uppercase; letter-spacing:.5px;
+  }
+  .nav-item{
+    display:flex; align-items:center; gap:10px;
+    padding:10px 12px; border-radius:10px; margin-bottom:2px;
+    color:var(--muted); font-size:13.5px; cursor:pointer;
+    transition:.12s;
+  }
+  .nav-item .ic{ width:20px; text-align:center; font-size:15px; }
+  .nav-item:hover{ background:var(--sidebar-hover); color:var(--text); }
+  .nav-item.active{ background:linear-gradient(90deg, rgba(59,130,246,.18), transparent); color:#fff; border-right:3px solid var(--accent); }
+  .nav-item.soon{ opacity:.45; cursor:not-allowed; }
+  .nav-item.soon:hover{ background:transparent; color:var(--muted); }
+  .soon-tag{
+    margin-right:auto; font-size:9.5px; background:#1e2b45; color:var(--muted);
+    padding:2px 6px; border-radius:6px;
+  }
+  .sidebar-footer{ padding:14px; border-top:1px solid var(--border); }
+  .user-chip{ display:flex; align-items:center; gap:10px; }
+  .user-avatar{
+    width:34px; height:34px; border-radius:50%; background:var(--teal);
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px;
+  }
+  .user-meta b{ display:block; font-size:12.5px; }
+  .user-meta span{ font-size:11px; color:var(--muted); }
+  .logout-btn{ margin-right:auto; color:var(--muted); cursor:pointer; font-size:16px; }
+  .logout-btn:hover{ color:var(--red); }
+
+  /* Main */
+  .main{ flex:1; margin-right:250px; min-height:100vh; }
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 24px; border-bottom:1px solid var(--border);
+    background:rgba(11,18,32,.7); backdrop-filter:blur(6px);
+    position:sticky; top:0; z-index:30;
+  }
+  .page-title{ font-size:18px; font-weight:700; }
+  .page-sub{ font-size:12px; color:var(--muted); margin-top:2px; }
+  .topbar-right{ display:flex; align-items:center; gap:14px; }
+  .clock{ font-size:12.5px; color:var(--muted); text-align:left; }
+  .menu-toggle{ display:none; font-size:20px; cursor:pointer; color:var(--text); }
+
+  .content{ padding:22px 24px 60px; }
+
+  /* KPI cards */
+  .kpi-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(210px,1fr));
+    gap:16px; margin-bottom:22px;
+  }
+  .kpi-card{
+    background:var(--card); border:1px solid var(--border); border-radius:16px;
+    padding:18px; position:relative; overflow:hidden;
+  }
+  .kpi-card::before{
+    content:''; position:absolute; inset:0 auto auto 0; width:4px; height:100%;
+    background:var(--accent-color, var(--accent));
+  }
+  .kpi-top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
+  .kpi-icon{
+    width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    font-size:17px; background:color-mix(in srgb, var(--accent-color, var(--accent)) 18%, transparent);
+    color:var(--accent-color, var(--accent));
+  }
+  .kpi-label{ font-size:12.5px; color:var(--muted); }
+  .kpi-value{ font-size:23px; font-weight:800; margin-top:2px; }
+  .kpi-delta{ font-size:11.5px; margin-top:6px; color:var(--muted); }
+
+  /* Panels */
+  .panel-grid{ display:grid; grid-template-columns:1.6fr 1fr; gap:16px; margin-bottom:16px; }
+  @media (max-width:980px){ .panel-grid{ grid-template-columns:1fr; } }
+  .panel{
+    background:var(--card); border:1px solid var(--border); border-radius:16px; padding:18px;
+  }
+  .panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .panel-head h3{ font-size:14.5px; }
+  .panel-head .hint{ font-size:11.5px; color:var(--muted); }
+  .chart-wrap{ height:260px; position:relative; }
+
+  /* Alerts */
+  .alert-row{
+    display:flex; align-items:center; gap:10px; padding:10px 12px;
+    border-radius:10px; background:#0c1526; margin-bottom:8px; font-size:12.5px;
+  }
+  .alert-row .dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .alert-row b{ font-weight:700; }
+  .empty-state{ text-align:center; color:var(--muted); font-size:12.5px; padding:30px 10px; }
+
+  /* Placeholder module screen */
+  .placeholder-box{
+    background:var(--card); border:1px dashed var(--border); border-radius:16px;
+    padding:60px 20px; text-align:center; color:var(--muted);
+  }
+  .placeholder-box .pi{ font-size:34px; margin-bottom:10px; }
+  .placeholder-box h3{ color:var(--text); font-size:16px; margin-bottom:6px; }
+
+  .toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:#101c33; border:1px solid var(--border); color:var(--text);
+    padding:12px 20px; border-radius:12px; font-size:13px; z-index:300;
+    box-shadow:0 10px 30px rgba(0,0,0,.4); display:none;
+  }
+
+  @media (max-width:860px){
+    .sidebar{ transform:translateX(100%); width:260px; }
+    .sidebar.open{ transform:translateX(0); }
+    .main{ margin-right:0; }
+    .menu-toggle{ display:block; }
+    .kpi-grid{ grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); }
+    .content{ padding:16px; }
+    .topbar{ padding:14px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN SCREEN ============ -->
+<div id="loginScreen">
+  <div class="login-box">
+    <div class="login-logo">📊</div>
+    <h1>نظام إدارة الحسابات</h1>
+    <p class="sub" id="loginSubtitle">سجّل دخولك للمتابعة</p>
+
+    <div class="field">
+      <label>البريد الإلكتروني</label>
+      <input type="email" id="loginEmail" placeholder="example@company.com">
+    </div>
+    <div class="field">
+      <label>كلمة المرور</label>
+      <input type="password" id="loginPassword" placeholder="••••••••">
+    </div>
+    <div class="field" id="nameField" style="display:none;">
+      <label>الاسم بالكامل</label>
+      <input type="text" id="loginName" placeholder="اسمك">
+    </div>
+
+    <button class="btn btn-primary" id="loginBtn" onclick="handleAuth()">دخول</button>
+    <div class="login-msg" id="loginMsg"></div>
+    <div class="login-toggle">
+      <span id="toggleText">أول مرة تستخدم النظام؟</span>
+      <a onclick="toggleAuthMode()" id="toggleLink">إنشاء حساب مدير جديد</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app">
+  <div class="shell">
+
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">📊</div>
+        <div class="brand-text">
+          <b>نظام الحسابات</b>
+          <span>الإصدار 1.0 · المرحلة الأساسية</span>
+        </div>
+      </div>
+
+      <div class="nav-scroll">
+        <div class="nav-group-title">الرئيسية</div>
+        <div class="nav-item active" data-page="dashboard" onclick="goPage('dashboard')">
+          <span class="ic">🏠</span> لوحة التحكم
+        </div>
+
+        <div class="nav-group-title">العمليات</div>
+        <div class="nav-item soon" onclick="comingSoon()"><span class="ic">📦</span> إدارة الأصناف <span class="soon-tag">قريباً</span></div>
+        <div class="nav-item soon" onclick="comingSoon()"><span class="ic">🏬</span> المخازن <span class="soon-tag">قريباً</span></div>
+        <div class="nav-item soon" onclick="comingSoon()"><span class="ic">🧾</span> المبيعات <span class="soon-tag">قريباً</span></div>
+        <div class="nav-item soon" onclick="comingSoon()"><span class="ic">🛒</span> المشتريات <span class="soon-tag">قريباً</span></div>
+        <div class="nav-item soon" onclick="comingSoon()"><span class="ic">👥</span> العملاء والموردون <span class="soon-tag">قريباً</span></div>
+
+        <div class="nav-group-title">المالية</div>
+        <div class="nav-item soon" onclick="comingSoon()"><span class="ic">💰</span> الخزينة والبنوك <span class="soon-tag">قريباً</span></div>
+        <div class="nav-item soon" onclick="comingSoon()"><span class="ic">📚</span> الحسابات العامة <span class="soon-tag">قريباً</span></div>
+        <div class="nav-item soon" onclick="comingSoon()"><span class="ic">📈</span> التقارير <span class="soon-tag">قريباً</span></div>
+
+        <div class="nav-group-title">النظام</div>
+        <div class="nav-item" data-page="settings" onclick="goPage('settings')"><span class="ic">⚙️</span> الإعدادات والمستخدمون</div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="user-chip">
+          <div class="user-avatar" id="userAvatar">؟</div>
+          <div class="user-meta">
+            <b id="userNameLbl">—</b>
+            <span id="userRoleLbl">—</span>
+          </div>
+          <span class="logout-btn" onclick="doLogout()" title="تسجيل الخروج">⏻</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+      <div class="topbar">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="menu-toggle" onclick="toggleSidebar()">☰</span>
+          <div>
+            <div class="page-title" id="pageTitle">لوحة التحكم</div>
+            <div class="page-sub" id="pageSub">نظرة عامة على أداء اليوم</div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <div class="clock" id="clockBox">—</div>
+        </div>
+      </div>
+
+      <div class="content">
+
+        <!-- ===== DASHBOARD PAGE ===== -->
+        <div id="page-dashboard">
+          <div class="kpi-grid">
+            <div class="kpi-card" style="--accent-color:var(--green)">
+              <div class="kpi-top"><div class="kpi-icon">🧾</div></div>
+              <div class="kpi-label">مبيعات اليوم</div>
+              <div class="kpi-value" id="kpiSalesToday">0.00</div>
+              <div class="kpi-delta">جنيه — نقدًا وآجل</div>
+            </div>
+            <div class="kpi-card" style="--accent-color:var(--amber)">
+              <div class="kpi-top"><div class="kpi-icon">🛒</div></div>
+              <div class="kpi-label">مشتريات اليوم</div>
+              <div class="kpi-value" id="kpiPurchasesToday">0.00</div>
+              <div class="kpi-delta">جنيه</div>
+            </div>
+            <div class="kpi-card" style="--accent-color:var(--accent)">
+              <div class="kpi-top"><div class="kpi-icon">💵</div></div>
+              <div class="kpi-label">رصيد الخزينة</div>
+              <div class="kpi-value" id="kpiTreasury">0.00</div>
+              <div class="kpi-delta" id="kpiTreasuryCount">0 خزينة</div>
+            </div>
+            <div class="kpi-card" style="--accent-color:var(--teal)">
+              <div class="kpi-top"><div class="kpi-icon">🏦</div></div>
+              <div class="kpi-label">أرصدة البنوك</div>
+              <div class="kpi-value" id="kpiBanks">0.00</div>
+              <div class="kpi-delta" id="kpiBanksCount">0 حساب بنكي</div>
+            </div>
+            <div class="kpi-card" style="--accent-color:var(--violet)">
+              <div class="kpi-top"><div class="kpi-icon">📈</div></div>
+              <div class="kpi-label">صافي الربح (الشهر)</div>
+              <div class="kpi-value" id="kpiProfit">0.00</div>
+              <div class="kpi-delta">جنيه</div>
+            </div>
+            <div class="kpi-card" style="--accent-color:var(--red)">
+              <div class="kpi-top"><div class="kpi-icon">⚠️</div></div>
+              <div class="kpi-label">تنبيهات نشطة</div>
+              <div class="kpi-value" id="kpiAlerts">0</div>
+              <div class="kpi-delta">تحتاج متابعة</div>
+            </div>
+          </div>
+
+          <div class="panel-grid">
+            <div class="panel">
+              <div class="panel-head">
+                <h3>أداء المبيعات — آخر 7 أيام</h3>
+                <span class="hint">جنيه مصري</span>
+              </div>
+              <div class="chart-wrap"><canvas id="salesChart"></canvas></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <h3>التنبيهات</h3>
+                <span class="hint" id="alertsHint">محدث الآن</span>
+              </div>
+              <div id="alertsList">
+                <div class="empty-state">لا توجد تنبيهات حاليًا 🎉</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-grid">
+            <div class="panel">
+              <div class="panel-head">
+                <h3>توزيع الخزينة والبنوك</h3>
+              </div>
+              <div class="chart-wrap" style="height:220px;"><canvas id="treasuryChart"></canvas></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <h3>ملخص سريع</h3>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:10px; font-size:13px;">
+                <div style="display:flex; justify-content:space-between; color:var(--muted);">
+                  <span>عدد الأصناف المسجلة</span><b style="color:var(--text)" id="qsItems">0</b>
+                </div>
+                <div style="display:flex; justify-content:space-between; color:var(--muted);">
+                  <span>عدد العملاء</span><b style="color:var(--text)" id="qsCustomers">0</b>
+                </div>
+                <div style="display:flex; justify-content:space-between; color:var(--muted);">
+                  <span>عدد الموردين</span><b style="color:var(--text)" id="qsSuppliers">0</b>
+                </div>
+                <div style="display:flex; justify-content:space-between; color:var(--muted);">
+                  <span>شيكات مستحقة قريبًا</span><b style="color:var(--text)" id="qsChecks">0</b>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== SETTINGS PAGE ===== -->
+        <div id="page-settings" style="display:none;">
+          <div class="panel" style="margin-bottom:16px;">
+            <div class="panel-head"><h3>بيانات الشركة</h3></div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+              <div class="field"><label>اسم الشركة</label><input type="text" id="companyName" placeholder="اسم الشركة"></div>
+              <div class="field"><label>الرقم الضريبي</label><input type="text" id="companyTax" placeholder="الرقم الضريبي"></div>
+            </div>
+            <button class="btn btn-primary" style="width:auto;" onclick="saveCompany()">حفظ البيانات</button>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h3>المستخدمون</h3>
+              <span class="hint">كل من سجّل دخول للنظام</span>
+            </div>
+            <div id="usersList" style="display:flex; flex-direction:column; gap:8px;"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   إعدادات Firebase — استبدل القيم دي بمشروعك الجديد المخصص للـERP
+   ========================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyB0YyO-hZzgCyyU2Q1495K8yrrhbQgXFqI",
+  authDomain: "y-s-erp-system-1234b.firebaseapp.com",
+  projectId: "y-s-erp-system-1234b",
+  storageBucket: "y-s-erp-system-1234b.firebasestorage.app",
+  messagingSenderId: "359129530672",
+  appId: "1:359129530672:web:f2b0946e5dd81c1ab108f5"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+let currentUser = null;
+let isSignupMode = false;
+let unsubscribers = [];
+
+/* ---------- Auth ---------- */
+function toggleAuthMode(){
+  isSignupMode = !isSignupMode;
+  document.getElementById('nameField').style.display = isSignupMode ? 'block' : 'none';
+  document.getElementById('loginBtn').textContent = isSignupMode ? 'إنشاء الحساب' : 'دخول';
+  document.getElementById('loginSubtitle').textContent = isSignupMode ? 'أنشئ حساب المدير الأول للنظام' : 'سجّل دخولك للمتابعة';
+  document.getElementById('toggleText').textContent = isSignupMode ? 'عندك حساب بالفعل؟' : 'أول مرة تستخدم النظام؟';
+  document.getElementById('toggleLink').textContent = isSignupMode ? 'تسجيل الدخول' : 'إنشاء حساب مدير جديد';
+  document.getElementById('loginMsg').textContent = '';
+}
+
+function setLoginMsg(text, ok){
+  const el = document.getElementById('loginMsg');
+  el.textContent = text;
+  el.className = 'login-msg ' + (ok ? 'ok' : 'err');
+}
+
+async function handleAuth(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const name = document.getElementById('loginName').value.trim();
+
+  if(!email || !password){ setLoginMsg('من فضلك أدخل البريد وكلمة المرور', false); return; }
+
+  try{
+    if(isSignupMode){
+      if(!name){ setLoginMsg('من فضلك أدخل الاسم', false); return; }
+      const cred = await auth.createUserWithEmailAndPassword(email, password);
+      await db.collection('users').doc(cred.user.uid).set({
+        name: name,
+        email: email,
+        role: 'admin',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        permissions: { all: true }
+      });
+      setLoginMsg('تم إنشاء الحساب بنجاح', true);
+    }else{
+      await auth.signInWithEmailAndPassword(email, password);
+    }
+  }catch(err){
+    setLoginMsg(translateAuthError(err.code), false);
+  }
+}
+
+function translateAuthError(code){
+  const map = {
+    'auth/invalid-email': 'صيغة البريد الإلكتروني غير صحيحة',
+    'auth/user-not-found': 'لا يوجد حساب بهذا البريد',
+    'auth/wrong-password': 'كلمة المرور غير صحيحة',
+    'auth/invalid-credential': 'بيانات الدخول غير صحيحة',
+    'auth/email-already-in-use': 'هذا البريد مسجل بالفعل',
+    'auth/weak-password': 'كلمة المرور ضعيفة (6 أحرف على الأقل)',
+  };
+  return map[code] || 'حدث خطأ، حاول مرة أخرى';
+}
+
+function doLogout(){
+  auth.signOut();
+}
+
+auth.onAuthStateChanged(async (user) => {
+  if(user){
+    const doc = await db.collection('users').doc(user.uid).get();
+    currentUser = { uid: user.uid, email: user.email, ...(doc.exists ? doc.data() : { name: user.email, role: 'مستخدم' }) };
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    document.getElementById('userNameLbl').textContent = currentUser.name || currentUser.email;
+    document.getElementById('userRoleLbl').textContent = currentUser.role === 'admin' ? 'مدير النظام' : (currentUser.role || 'مستخدم');
+    document.getElementById('userAvatar').textContent = (currentUser.name || currentUser.email || '؟').charAt(0);
+    startDashboardListeners();
+    loadUsersList();
+  }else{
+    currentUser = null;
+    unsubscribers.forEach(u => u());
+    unsubscribers = [];
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('app').style.display = 'none';
+  }
+});
+
+/* ---------- Navigation ---------- */
+function goPage(page){
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const target = document.querySelector(`.nav-item[data-page="${page}"]`);
+  if(target) target.classList.add('active');
+
+  document.getElementById('page-dashboard').style.display = page === 'dashboard' ? 'block' : 'none';
+  document.getElementById('page-settings').style.display = page === 'settings' ? 'block' : 'none';
+
+  const titles = {
+    dashboard: ['لوحة التحكم', 'نظرة عامة على أداء اليوم'],
+    settings: ['الإعدادات والمستخدمون', 'بيانات الشركة وإدارة المستخدمين']
+  };
+  document.getElementById('pageTitle').textContent = titles[page][0];
+  document.getElementById('pageSub').textContent = titles[page][1];
+
+  if(window.innerWidth <= 860) document.getElementById('sidebar').classList.remove('open');
+}
+
+function toggleSidebar(){
+  document.getElementById('sidebar').classList.toggle('open');
+}
+
+function comingSoon(){
+  showToast('هذا القسم هيتضاف في المرحلة الجاية 🚧');
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 2600);
+}
+
+/* ---------- Clock ---------- */
+function updateClock(){
+  const now = new Date();
+  const opts = { weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' };
+  document.getElementById('clockBox').textContent = now.toLocaleDateString('ar-EG', opts);
+}
+setInterval(updateClock, 1000 * 30);
+updateClock();
+
+/* ---------- Firestore helpers ---------- */
+function fmt(n){
+  return (n || 0).toLocaleString('ar-EG', { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+function startOfToday(){
+  const d = new Date(); d.setHours(0,0,0,0); return d;
+}
+function startOfMonth(){
+  const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d;
+}
+
+/* ---------- Dashboard data (Firestore schema, phase 1) ----------
+   Collections used going forward by later phases:
+   - salesInvoices   {date, total, paymentType, ...}
+   - purchaseInvoices{date, total, ...}
+   - treasuries      {name, balance}
+   - bankAccounts    {name, balance}
+   - items           {name, minStock, currentStock, ...}
+   - customers       {name, balance}
+   - suppliers       {name, balance}
+   - checks          {dueDate, amount, status}
+   All collections are created automatically once the later phases write to them.
+   The dashboard below listens to them in real time and simply shows zero/empty
+   states gracefully if a collection doesn't exist yet. */
+function startDashboardListeners(){
+  unsubscribers.forEach(u => u());
+  unsubscribers = [];
+
+  // Sales today + weekly chart
+  unsubscribers.push(
+    db.collection('salesInvoices').onSnapshot(snap => {
+      let todayTotal = 0;
+      const byDay = {};
+      const today = startOfToday();
+      snap.forEach(doc => {
+        const d = doc.data();
+        const dt = d.date && d.date.toDate ? d.date.toDate() : new Date(d.date || Date.now());
+        const key = dt.toISOString().slice(0,10);
+        byDay[key] = (byDay[key] || 0) + (d.total || 0);
+        if(dt >= today) todayTotal += (d.total || 0);
+      });
+      document.getElementById('kpiSalesToday').textContent = fmt(todayTotal);
+      renderSalesChart(byDay);
+    }, () => { document.getElementById('kpiSalesToday').textContent = fmt(0); renderSalesChart({}); })
+  );
+
+  // Purchases today
+  unsubscribers.push(
+    db.collection('purchaseInvoices').onSnapshot(snap => {
+      let todayTotal = 0;
+      const today = startOfToday();
+      snap.forEach(doc => {
+        const d = doc.data();
+        const dt = d.date && d.date.toDate ? d.date.toDate() : new Date(d.date || Date.now());
+        if(dt >= today) todayTotal += (d.total || 0);
+      });
+      document.getElementById('kpiPurchasesToday').textContent = fmt(todayTotal);
+    }, () => document.getElementById('kpiPurchasesToday').textContent = fmt(0))
+  );
+
+  // Treasuries
+  unsubscribers.push(
+    db.collection('treasuries').onSnapshot(snap => {
+      let total = 0;
+      snap.forEach(doc => total += (doc.data().balance || 0));
+      document.getElementById('kpiTreasury').textContent = fmt(total);
+      document.getElementById('kpiTreasuryCount').textContent = snap.size + ' خزينة';
+      renderTreasuryChart();
+    }, () => document.getElementById('kpiTreasury').textContent = fmt(0))
+  );
+
+  // Banks
+  unsubscribers.push(
+    db.collection('bankAccounts').onSnapshot(snap => {
+      let total = 0;
+      snap.forEach(doc => total += (doc.data().balance || 0));
+      document.getElementById('kpiBanks').textContent = fmt(total);
+      document.getElementById('kpiBanksCount').textContent = snap.size + ' حساب بنكي';
+      renderTreasuryChart();
+    }, () => document.getElementById('kpiBanks').textContent = fmt(0))
+  );
+
+  // Items (low stock alerts + count)
+  unsubscribers.push(
+    db.collection('items').onSnapshot(snap => {
+      document.getElementById('qsItems').textContent = snap.size;
+      const lowStock = [];
+      snap.forEach(doc => {
+        const d = doc.data();
+        if((d.currentStock ?? 0) <= (d.minStock ?? 0)){
+          lowStock.push(d.name || 'صنف بدون اسم');
+        }
+      });
+      updateAlerts({ lowStock });
+    }, () => updateAlerts({ lowStock: [] }))
+  );
+
+  // Customers
+  unsubscribers.push(
+    db.collection('customers').onSnapshot(snap => {
+      document.getElementById('qsCustomers').textContent = snap.size;
+    }, () => {})
+  );
+
+  // Suppliers
+  unsubscribers.push(
+    db.collection('suppliers').onSnapshot(snap => {
+      document.getElementById('qsSuppliers').textContent = snap.size;
+    }, () => {})
+  );
+
+  // Checks due soon (within 7 days)
+  unsubscribers.push(
+    db.collection('checks').onSnapshot(snap => {
+      const now = new Date();
+      const in7 = new Date(now.getTime() + 7*24*60*60*1000);
+      let dueSoon = [];
+      snap.forEach(doc => {
+        const d = doc.data();
+        const due = d.dueDate && d.dueDate.toDate ? d.dueDate.toDate() : new Date(d.dueDate || 0);
+        if(d.status !== 'مصروف' && due >= now && due <= in7){
+          dueSoon.push(d);
+        }
+      });
+      document.getElementById('qsChecks').textContent = dueSoon.length;
+      updateAlerts({ checksDue: dueSoon.length });
+    }, () => {})
+  );
+
+  // Profit (month) — placeholder calc: sales - purchases this month, refined once accounting module lands
+  unsubscribers.push(
+    db.collection('salesInvoices').onSnapshot(snap => {
+      const som = startOfMonth();
+      let salesMonth = 0;
+      snap.forEach(doc => {
+        const d = doc.data();
+        const dt = d.date && d.date.toDate ? d.date.toDate() : new Date(d.date || Date.now());
+        if(dt >= som) salesMonth += (d.total || 0);
+      });
+      db.collection('purchaseInvoices').get().then(psnap => {
+        let purchasesMonth = 0;
+        psnap.forEach(doc => {
+          const d = doc.data();
+          const dt = d.date && d.date.toDate ? d.date.toDate() : new Date(d.date || Date.now());
+          if(dt >= som) purchasesMonth += (d.total || 0);
+        });
+        document.getElementById('kpiProfit').textContent = fmt(salesMonth - purchasesMonth);
+      });
+    }, () => {})
+  );
+}
+
+let alertsState = { lowStock: [], checksDue: 0 };
+function updateAlerts(partial){
+  alertsState = { ...alertsState, ...partial };
+  const list = document.getElementById('alertsList');
+  const rows = [];
+
+  alertsState.lowStock.forEach(name => {
+    rows.push(`<div class="alert-row"><span class="dot" style="background:var(--red)"></span> نقص مخزون: <b>${escapeHtml(name)}</b></div>`);
+  });
+  if(alertsState.checksDue > 0){
+    rows.push(`<div class="alert-row"><span class="dot" style="background:var(--amber)"></span> يوجد <b>${alertsState.checksDue}</b> شيك مستحق خلال 7 أيام</div>`);
+  }
+
+  document.getElementById('kpiAlerts').textContent = rows.length;
+  list.innerHTML = rows.length ? rows.join('') : '<div class="empty-state">لا توجد تنبيهات حاليًا 🎉</div>';
+}
+
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/* ---------- Charts ---------- */
+let salesChartInstance = null;
+function renderSalesChart(byDay){
+  const labels = [];
+  const values = [];
+  for(let i = 6; i >= 0; i--){
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0,10);
+    labels.push(d.toLocaleDateString('ar-EG', { weekday:'short' }));
+    values.push(byDay[key] || 0);
+  }
+  const ctx = document.getElementById('salesChart');
+  if(salesChartInstance) salesChartInstance.destroy();
+  salesChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'المبيعات',
+        data: values,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,.12)',
+        fill: true,
+        tension: .35,
+        pointRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display:false }, ticks: { color:'#8b98b3' } },
+        y: { grid: { color:'#1e2b45' }, ticks: { color:'#8b98b3' } }
+      }
+    }
+  });
+}
+
+let treasuryChartInstance = null;
+async function renderTreasuryChart(){
+  const [tSnap, bSnap] = await Promise.all([
+    db.collection('treasuries').get().catch(()=>({forEach:()=>{}, empty:true})),
+    db.collection('bankAccounts').get().catch(()=>({forEach:()=>{}, empty:true})),
+  ]);
+  let treasuryTotal = 0, bankTotal = 0;
+  tSnap.forEach(doc => treasuryTotal += (doc.data().balance || 0));
+  bSnap.forEach(doc => bankTotal += (doc.data().balance || 0));
+
+  const ctx = document.getElementById('treasuryChart');
+  if(treasuryChartInstance) treasuryChartInstance.destroy();
+  if(treasuryTotal === 0 && bankTotal === 0){
+    ctx.parentElement.innerHTML = '<div class="empty-state">لا توجد بيانات خزينة أو بنوك بعد</div>';
+    return;
+  }
+  treasuryChartInstance = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['الخزينة', 'البنوك'],
+      datasets: [{ data: [treasuryTotal, bankTotal], backgroundColor: ['#3b82f6', '#14b8a6'], borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position:'bottom', labels: { color:'#8b98b3', font: { family:'Cairo' } } } }
+    }
+  });
+}
+
+/* ---------- Settings page ---------- */
+async function saveCompany(){
+  const name = document.getElementById('companyName').value.trim();
+  const tax = document.getElementById('companyTax').value.trim();
+  await db.collection('settings').doc('company').set({ name, tax }, { merge: true });
+  showToast('تم حفظ بيانات الشركة');
+}
+
+async function loadCompany(){
+  const doc = await db.collection('settings').doc('company').get();
+  if(doc.exists){
+    document.getElementById('companyName').value = doc.data().name || '';
+    document.getElementById('companyTax').value = doc.data().tax || '';
+  }
+}
+
+function loadUsersList(){
+  db.collection('users').onSnapshot(snap => {
+    const rows = [];
+    snap.forEach(doc => {
+      const d = doc.data();
+      rows.push(`
+        <div class="alert-row" style="justify-content:space-between;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="dot" style="background:var(--accent)"></span>
+            <b>${escapeHtml(d.name || d.email || 'مستخدم')}</b>
+            <span style="color:var(--muted)">${escapeHtml(d.email || '')}</span>
+          </div>
+          <span style="color:var(--muted)">${d.role === 'admin' ? 'مدير النظام' : (d.role || 'مستخدم')}</span>
+        </div>
+      `);
+    });
+    document.getElementById('usersList').innerHTML = rows.join('') || '<div class="empty-state">لا يوجد مستخدمون بعد</div>';
+  });
+}
+
+loadCompany();
+</script>
+</body>
+</html>
