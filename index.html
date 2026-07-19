@@ -2656,12 +2656,12 @@ function renderItemsTable(){
       totalCount = total;
       totalWeight = totalCount * weightPerPiece;
     }
-    const sellPerUnit = baseType === 'weight'
-      ? (u.factor > 0 ? (u.sellPrice || 0) / u.factor : 0)
-      : (u.count > 0 ? (u.sellPrice || 0) / u.count : 0);
-    const buyPerUnit = baseType === 'weight'
-      ? (u.factor > 0 ? (u.buyPrice || 0) / u.factor : 0)
-      : (u.count > 0 ? (u.buyPrice || 0) / u.count : 0);
+    // نعرض سعر الشراء والبيع زي ما اتكتب بالظبط لأول وحدة معرّفة للصنف (سعر الوحدة كاملة،
+    // زي الكيس أو الكرتونة)، من غير أي قسمة على الوزن أو العدد. القسمة القديمة كانت بتطلع
+    // رقم غير منطقي (مثلاً تقسيم على وزن الوحدة الكلي بدل عرض السعر الحقيقي المُدخل).
+    const unitName = u.name || 'الوحدة';
+    const sellPerUnit = u.sellPrice || 0;
+    const buyPerUnit = u.buyPrice || 0;
 
     const code = it.barcode || ('P' + it.id.slice(-4).toUpperCase());
     const cat = it.category || 'بدون تصنيف';
@@ -2672,7 +2672,7 @@ function renderItemsTable(){
         <td class="clickable" onclick="openItemCard('${it.id}')"><b>${escapeHtml(it.name||'')}</b></td>
         <td><span class="category-pill" style="cursor:default; padding:3px 10px;"><span class="dot" style="background:${categoryColor(it.category)}"></span>${escapeHtml(cat)}</span></td>
         <td style="color:var(--muted); font-size:12.5px;">${escapeHtml(it.location || '—')}</td>
-        <td>${baseType === 'weight' ? 'وزن' : 'عدد'}</td>
+        <td>${escapeHtml(unitName)}</td>
         <td>${fmt(buyPerUnit)} ج</td>
         <td>${fmt(sellPerUnit)} ج</td>
         <td>${fmt(totalCount)} قطعة</td>
