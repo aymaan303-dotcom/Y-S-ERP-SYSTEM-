@@ -743,7 +743,7 @@
               <thead>
                 <tr>
                   <th>الكود</th><th>اسم الصنف</th><th>النوع</th><th>المكان</th><th>الوحدة</th>
-                  <th>سعر الشراء</th><th>سعر البيع</th><th>العدد الموجود</th><th>الوزن الموجود</th><th>الحالة</th><th></th>
+                  <th>سعر الشراء</th><th>سعر البيع</th><th>العدد الموجود</th><th>الوزن الموجود</th><th>القيمة (تكلفة)</th><th>الحالة</th><th></th>
                 </tr>
               </thead>
               <tbody id="itemsTableBody"></tbody>
@@ -2663,6 +2663,10 @@ function renderItemsTable(){
     const sellPerUnit = u.sellPrice || 0;
     const buyPerUnit = u.buyPrice || 0;
 
+    // قيمة المخزون الحالي للصنف = الكمية الموجودة (بالوحدة الأساسية) × تكلفة الوحدة الأساسية
+    const costPerBase = u.factor > 0 ? (u.buyPrice || 0) / u.factor : 0;
+    const itemValue = costPerBase * total;
+
     const code = it.barcode || ('P' + it.id.slice(-4).toUpperCase());
     const cat = it.category || 'بدون تصنيف';
 
@@ -2677,6 +2681,7 @@ function renderItemsTable(){
         <td>${fmt(sellPerUnit)} ج</td>
         <td>${fmt(totalCount)} قطعة</td>
         <td>${fmt(totalWeight)} كجم</td>
+        <td><b>${fmt(itemValue)} ج</b></td>
         <td>${isLow ? '<span class="status-pill warn">تحت الحد الأدنى</span>' : '<span class="status-pill ok">متاح</span>'}</td>
         <td style="display:flex; gap:12px; align-items:center;">
           <span class="row-action-link edit" onclick="openItemModal('${it.id}')">تعديل</span>
