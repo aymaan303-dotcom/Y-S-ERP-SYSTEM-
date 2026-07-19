@@ -743,7 +743,7 @@
               <thead>
                 <tr>
                   <th>الكود</th><th>اسم الصنف</th><th>النوع</th><th>المكان</th><th>الوحدة</th>
-                  <th>سعر الشراء</th><th>سعر البيع</th><th>المخزون</th><th>الحالة</th><th></th>
+                  <th>سعر الشراء</th><th>سعر البيع</th><th>العدد الموجود</th><th>الوزن الموجود</th><th>الحالة</th><th></th>
                 </tr>
               </thead>
               <tbody id="itemsTableBody"></tbody>
@@ -1470,7 +1470,7 @@
       </div>
       <div class="table-wrap" style="max-height:320px; overflow-y:auto;">
         <table class="data-table">
-          <thead><tr><th>اسم الصنف</th><th>الوحدة</th><th>شراء</th><th>بيع</th><th>الحالة</th></tr></thead>
+          <thead><tr><th>اسم الصنف</th><th>التصنيف</th><th>الوحدة</th><th>شراء</th><th>بيع</th><th>الكمية الحالية</th><th>المخزن</th><th>الحالة</th></tr></thead>
           <tbody id="itemsImportPreviewBody"></tbody>
         </table>
       </div>
@@ -2656,8 +2656,6 @@ function renderItemsTable(){
       totalCount = total;
       totalWeight = totalCount * weightPerPiece;
     }
-    const stockLabel = baseType === 'weight' ? `${fmt(totalWeight)} كجم` : `${fmt(totalCount)} قطعة`;
-
     const sellPerUnit = baseType === 'weight'
       ? (u.factor > 0 ? (u.sellPrice || 0) / u.factor : 0)
       : (u.count > 0 ? (u.sellPrice || 0) / u.count : 0);
@@ -2677,7 +2675,8 @@ function renderItemsTable(){
         <td>${baseType === 'weight' ? 'وزن' : 'عدد'}</td>
         <td>${fmt(buyPerUnit)} ج</td>
         <td>${fmt(sellPerUnit)} ج</td>
-        <td>${stockLabel}</td>
+        <td>${fmt(totalCount)} قطعة</td>
+        <td>${fmt(totalWeight)} كجم</td>
         <td>${isLow ? '<span class="status-pill warn">تحت الحد الأدنى</span>' : '<span class="status-pill ok">متاح</span>'}</td>
         <td style="display:flex; gap:12px; align-items:center;">
           <span class="row-action-link edit" onclick="openItemModal('${it.id}')">تعديل</span>
@@ -2875,7 +2874,7 @@ async function bulkDeleteZeroStockItems(){
 }
 
 /* ---------- Bulk items import from Excel ---------- */
-const ITEMS_IMPORT_HEADERS = ['اسم الصنف', 'الباركود', 'التصنيف', 'الموقع في المخزن', 'نوع الوحدة (وزن/عدد)', 'اسم الوحدة', 'الوزن أو الكمية الكلية للوحدة', 'العدد الكلي في الوحدة', 'سعر الشراء للوحدة', 'سعر البيع للوحدة', 'الحد الأدنى للمخزون'];
+const ITEMS_IMPORT_HEADERS = ['اسم الصنف', 'التصنيف', 'الموقع في المخزن', 'نوع الوحدة (وزن/عدد)', 'اسم الوحدة', 'الوزن أو الكمية الكلية للوحدة', 'العدد الكلي في الوحدة', 'سعر الشراء للوحدة', 'سعر البيع للوحدة', 'الحد الأدنى للمخزون', 'الكمية الحالية', 'المخزن'];
 let itemsImportParsed = [];
 
 function openItemsImportModal(){
@@ -2891,7 +2890,8 @@ function closeItemsImportModal(){ document.getElementById('itemsImportModalOverl
 
 function downloadItemsImportTemplate(){
   if(typeof XLSX === 'undefined'){ showToast('تعذر تحميل مكتبة الإكسل، تأكد من الاتصال بالإنترنت'); return; }
-  const exampleRow = ['أسمنت بورتلاندي', '6221000000012', 'مواد بناء', 'المخزن الرئيسي', 'وزن', 'كيس 50 كجم', 50, 1, 120, 140, 10];
+  const firstWarehouseName = (allWarehouses[0] && allWarehouses[0].name) || 'المخزن الرئيسي';
+  const exampleRow = ['أسمنت بورتلاندي', 'مواد بناء', firstWarehouseName, 'وزن', 'كيس 50 كجم', 50, 1, 120, 140, 10, 25, firstWarehouseName];
   const ws = XLSX.utils.aoa_to_sheet([ITEMS_IMPORT_HEADERS, exampleRow]);
   ws['!cols'] = ITEMS_IMPORT_HEADERS.map(() => ({ wch: 22 }));
   const wb = XLSX.utils.book_new();
@@ -2934,7 +2934,6 @@ function normalizeHeaderKey(row, ...keys){
 function parseItemsImportRows(rows){
   itemsImportParsed = rows.map(row => {
     const name = String(normalizeHeaderKey(row, 'اسم الصنف') || '').trim();
-    const barcode = String(normalizeHeaderKey(row, 'الباركود') || '').trim();
     const category = String(normalizeHeaderKey(row, 'التصنيف') || '').trim();
     const location = String(normalizeHeaderKey(row, 'الموقع في المخزن') || '').trim();
     const unitTypeRaw = String(normalizeHeaderKey(row, 'نوع الوحدة (وزن/عدد)') || '').trim();
@@ -2945,10 +2944,13 @@ function parseItemsImportRows(rows){
     const buyPrice = parseFloat(normalizeHeaderKey(row, 'سعر الشراء للوحدة')) || 0;
     const sellPrice = parseFloat(normalizeHeaderKey(row, 'سعر البيع للوحدة')) || 0;
     const minStock = parseFloat(normalizeHeaderKey(row, 'الحد الأدنى للمخزون')) || 0;
+    const initialQty = parseFloat(normalizeHeaderKey(row, 'الكمية الحالية')) || 0;
+    const warehouseName = String(normalizeHeaderKey(row, 'المخزن') || '').trim();
+    const warehouse = warehouseName ? allWarehouses.find(w => w.name.trim() === warehouseName) : null;
     const valid = !!name;
     const alreadyExists = valid && allItems.some(it => it.name.trim() === name);
-    return { name, barcode, category, location, baseUnitType, unitName, factor, count, buyPrice, sellPrice, minStock, valid, alreadyExists };
-  }).filter(r => r.name || r.barcode || r.category); // تجاهل الصفوف الفارغة تمامًا
+    return { name, category, location, baseUnitType, unitName, factor, count, buyPrice, sellPrice, minStock, initialQty, warehouseName, warehouseId: warehouse ? warehouse.id : '', valid, alreadyExists };
+  }).filter(r => r.name || r.category); // تجاهل الصفوف الفارغة تمامًا
 
   renderItemsImportPreview();
 }
@@ -2963,14 +2965,29 @@ function renderItemsImportPreview(){
   document.getElementById('itemsImportConfirmBtn').style.display = validRows.length ? 'inline-flex' : 'none';
 
   const body = document.getElementById('itemsImportPreviewBody');
-  body.innerHTML = itemsImportParsed.map(r => `
+  body.innerHTML = itemsImportParsed.map(r => {
+    let statusHtml;
+    if(!r.valid){
+      statusHtml = '<span style="color:var(--red)">بدون اسم</span>';
+    }else if(r.alreadyExists){
+      statusHtml = '<span style="color:var(--amber)">⚠️ اسم مكرر</span>';
+    }else if(r.initialQty > 0 && r.warehouseName && !r.warehouseId){
+      statusHtml = `<span style="color:var(--amber)">⚠️ مخزن "${escapeHtml(r.warehouseName)}" غير موجود</span>`;
+    }else{
+      statusHtml = '<span style="color:var(--green)">جاهز</span>';
+    }
+    return `
     <tr style="${r.valid ? '' : 'opacity:.5; color:var(--red);'}">
       <td>${escapeHtml(r.name || '(بدون اسم)')}</td>
+      <td>${escapeHtml(r.category || '—')}</td>
       <td>${escapeHtml(r.unitName)}</td>
       <td>${fmt(r.buyPrice)}</td>
       <td>${fmt(r.sellPrice)}</td>
-      <td>${r.valid ? (r.alreadyExists ? '<span style="color:var(--amber)">⚠️ اسم مكرر</span>' : '<span style="color:var(--green)">جاهز</span>') : '<span style="color:var(--red)">بدون اسم</span>'}</td>
-    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center; color:var(--muted);">لم يتم العثور على صفوف في الملف</td></tr>';
+      <td>${r.initialQty > 0 ? fmt(r.initialQty) : '—'}</td>
+      <td>${escapeHtml(r.warehouseName || '—')}</td>
+      <td>${statusHtml}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="8" style="text-align:center; color:var(--muted);">لم يتم العثور على صفوف في الملف</td></tr>';
 }
 
 async function confirmItemsImport(){
@@ -2981,6 +2998,7 @@ async function confirmItemsImport(){
   btn.textContent = 'جاري الاستيراد...';
   try{
     const chunkSize = 400;
+    const createdRefs = []; // {ref, row} لكل صف عشان نقدر نسجل المخزون الافتتاحي بعد الإنشاء
     for(let i = 0; i < validRows.length; i += chunkSize){
       const chunk = validRows.slice(i, i + chunkSize);
       const batch = db.batch();
@@ -2989,20 +3007,26 @@ async function confirmItemsImport(){
         const units = [{ name: r.unitName, factor: r.factor, buyPrice: r.buyPrice, sellPrice: r.sellPrice, count: r.count }];
         batch.set(ref, {
           name: r.name,
-          barcode: r.barcode,
           category: r.category,
           location: r.location,
           minStock: r.minStock,
-          imageUrl: '',
           baseUnitType: r.baseUnitType,
           units,
           baseUnit: units[0].name,
           currentStock: 0,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         });
+        createdRefs.push({ ref, row: r });
       });
       await batch.commit();
     }
+
+    // تسجيل المخزون الافتتاحي للأصناف اللي فيها كمية حالية ومخزن محدد وصحيح
+    const stockRows = createdRefs.filter(x => x.row.initialQty > 0 && x.row.warehouseId);
+    for(const x of stockRows){
+      await adjustStock(x.ref.id, x.row.warehouseId, x.row.initialQty, 'in', 'مخزون افتتاحي عند استيراد الصنف بالجملة');
+    }
+
     await logAction('items', 'استيراد أصناف بالجملة', `${validRows.length} صنف`);
     showToast(`تم استيراد ${validRows.length} صنف بنجاح`);
     closeItemsImportModal();
