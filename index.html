@@ -353,6 +353,14 @@
   .unit-row{ display:grid; grid-template-columns:1fr 0.6fr 0.6fr 0.6fr 0.6fr 0.6fr 0.6fr auto; gap:5px; align-items:center; }
   @media (max-width:520px){ .unit-row{ grid-template-columns:1fr 1fr; } }
   .unit-row input{ padding:9px 10px; font-size:12.5px; }
+  .unit-card{
+    border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:10px; background:var(--input-bg);
+  }
+  .unit-card .form-row{ margin-bottom:8px; }
+  .unit-card .form-row:last-of-type{ margin-bottom:0; }
+  .unit-card label{ font-size:11px; }
+  .unit-card .unit-card-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .unit-card .unit-card-head b{ font-size:12.5px; color:var(--muted); }
   .modal-actions{ display:flex; gap:10px; margin-top:16px; }
   .modal-actions .btn{ flex:1; }
   .img-preview{
@@ -1397,12 +1405,7 @@
       <span class="modal-close" onclick="closeItemModal()">✕</span>
     </div>
     <input type="hidden" id="itemId">
-    <div class="img-preview" id="itemImgPreview">لا توجد صورة</div>
-    <div class="field"><label>رابط صورة الصنف (اختياري)</label><input type="text" id="itemImageUrl" placeholder="https://..." oninput="updateImgPreview()"></div>
-    <div class="form-row">
-      <div class="field"><label>اسم الصنف *</label><input type="text" id="itemName" placeholder="مثال: أسمنت"></div>
-      <div class="field"><label>الباركود</label><input type="text" id="itemBarcode" placeholder="اختياري"></div>
-    </div>
+    <div class="field"><label>اسم الصنف *</label><input type="text" id="itemName" placeholder="مثال: أسمنت"></div>
     <div class="field">
       <label>الوحدة الأساسية للمخزن</label>
       <select id="itemBaseUnitType">
@@ -1416,10 +1419,19 @@
     </div>
     <div class="field"><label>الحد الأدنى للمخزون</label><input type="number" id="itemMinStock" min="0" step="0.001" value="0"></div>
 
-    <label style="display:block; font-size:13px; color:var(--muted); margin:14px 0 8px;">الوحدات وأسعار الشراء والبيع</label>
-    <div class="unit-row" style="margin-bottom:6px; color:var(--muted); font-size:10px; grid-template-columns: 1fr 0.6fr 0.6fr 0.6fr 0.6fr 0.6fr 0.6fr auto; gap: 5px;">
-      <span>اسم الوحدة</span><span>الوزن الكلي</span><span>شراء (وحدة)</span><span>بيع (وحدة)</span><span>العدد الكلي</span><span>وزن/ق</span><span>سعر/ق</span><span></span>
+    <!-- الكمية الحالية: بتظهر بس عند إضافة صنف جديد، لتحديد مخزون افتتاحي.
+         عند تعديل صنف موجود، بنعرض الإجمالي الحالي بس كمعلومة (للتعديل الفعلي استخدم الجرد أو فاتورة شراء). -->
+    <div class="form-row" id="itemNewStockRow">
+      <div class="field"><label>الكمية الحالية (مخزون افتتاحي)</label><input type="number" id="itemInitialQty" min="0" step="0.001" value="0"></div>
+      <div class="field"><label>المخزن</label><select id="itemInitialWarehouse"></select></div>
     </div>
+    <div class="field" id="itemCurrentStockInfo" style="display:none;">
+      <label>الكمية الحالية الإجمالية</label>
+      <input type="text" id="itemCurrentStockValue" readonly style="background:#090f1b;">
+      <small style="color:var(--muted); font-size:11px;">لتعديل المخزون استخدم شاشة "الجرد" أو فاتورة شراء/تحويل — مش من هنا، عشان يفضل في تتبع لحركة الصنف.</small>
+    </div>
+
+    <label style="display:block; font-size:13px; color:var(--muted); margin:14px 0 8px;">الوحدات وأسعار الشراء والبيع</label>
     <div class="units-list" id="unitsList"></div>
     <button class="btn btn-ghost btn-sm" style="width:auto;" onclick="addUnitRow()">+ إضافة وحدة</button>
 
@@ -2680,23 +2692,32 @@ function addUnitRow(unit){
   const id = 'u' + unitRowCounter;
   const u = unit || { name:'', factor:1, buyPrice:0, sellPrice:0, count:1 };
   const wrap = document.createElement('div');
-  wrap.className = 'unit-row';
+  wrap.className = 'unit-card';
   wrap.id = id;
-  
+
   // Calculate initial values
   const count = u.count || 1;
   const weightPerUnit = (u.factor / count).toFixed(3);
   const pricePerUnit = (u.sellPrice / count).toFixed(2);
 
   wrap.innerHTML = `
-    <input type="text" placeholder="اسم الوحدة" value="${escapeAttr(u.name)}" data-f="name">
-    <input type="number" placeholder="الوزن" step="0.0001" value="${u.factor}" data-f="factor" oninput="calculateUnitDetails('${id}')">
-    <input type="number" placeholder="شراء" step="0.01" value="${u.buyPrice}" data-f="buyPrice">
-    <input type="number" placeholder="بيع" step="0.01" value="${u.sellPrice}" data-f="sellPrice" oninput="calculateUnitDetails('${id}')">
-    <input type="number" placeholder="العدد" step="1" value="${count}" data-f="count" oninput="calculateUnitDetails('${id}')">
-    <input type="text" readonly value="${weightPerUnit}" data-f="weightPerUnit" style="background:#090f1b; border-color:transparent; text-align:center;">
-    <input type="text" readonly value="${pricePerUnit}" data-f="pricePerUnit" style="background:#090f1b; border-color:transparent; text-align:center;">
-    <span class="btn-icon danger" onclick="document.getElementById('${id}').remove()">✕</span>
+    <div class="unit-card-head">
+      <b>وحدة</b>
+      <span class="btn-icon danger" onclick="document.getElementById('${id}').remove()">🗑 حذف الوحدة</span>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>اسم الوحدة</label><input type="text" placeholder="مثال: كيس / كرتونة" value="${escapeAttr(u.name)}" data-f="name"></div>
+      <div class="field"><label>عدد القطع في الوحدة</label><input type="number" placeholder="1" step="1" min="1" value="${count}" data-f="count" oninput="calculateUnitDetails('${id}')"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>الوزن/الكمية الكلية للوحدة</label><input type="number" placeholder="0" step="0.0001" value="${u.factor}" data-f="factor" oninput="calculateUnitDetails('${id}')"></div>
+      <div class="field"><label>سعر الشراء للوحدة</label><input type="number" placeholder="0.00" step="0.01" value="${u.buyPrice}" data-f="buyPrice"></div>
+      <div class="field"><label>سعر البيع للوحدة</label><input type="number" placeholder="0.00" step="0.01" value="${u.sellPrice}" data-f="sellPrice" oninput="calculateUnitDetails('${id}')"></div>
+    </div>
+    <div class="form-row" style="opacity:.75;">
+      <div class="field"><label>الوزن للقطعة (تلقائي)</label><input type="text" readonly value="${weightPerUnit}" data-f="weightPerUnit"></div>
+      <div class="field"><label>السعر للقطعة (تلقائي)</label><input type="text" readonly value="${pricePerUnit}" data-f="pricePerUnit"></div>
+    </div>
   `;
   document.getElementById('unitsList').appendChild(wrap);
 }
@@ -2716,7 +2737,7 @@ function calculateUnitDetails(rowId){
 function escapeAttr(s){ return (s||'').replace(/"/g,'&quot;'); }
 
 function collectUnits(){
-  const rows = document.querySelectorAll('#unitsList .unit-row');
+  const rows = document.querySelectorAll('#unitsList .unit-card');
   const units = [];
   rows.forEach(row => {
     const get = f => row.querySelector(`[data-f="${f}"]`).value;
@@ -2733,47 +2754,45 @@ function collectUnits(){
   return units;
 }
 
-function updateImgPreview(){
-  const url = document.getElementById('itemImageUrl').value.trim();
-  const box = document.getElementById('itemImgPreview');
-  if(url){
-    box.style.backgroundImage = `url('${url}')`;
-    box.textContent = '';
-  }else{
-    box.style.backgroundImage = '';
-    box.textContent = 'لا توجد صورة';
-  }
-}
-
 function openItemModal(itemId){
   document.getElementById('unitsList').innerHTML = '';
+  const whSelect = document.getElementById('itemInitialWarehouse');
+  whSelect.innerHTML = allWarehouses.map(w => `<option value="${w.id}">${escapeHtml(w.name)}</option>`).join('');
+
   if(itemId){
     const it = allItems.find(i => i.id === itemId);
     if(!it) return;
     document.getElementById('itemModalTitle').textContent = 'تعديل صنف';
     document.getElementById('itemId').value = itemId;
     document.getElementById('itemName').value = it.name || '';
-    document.getElementById('itemBarcode').value = it.barcode || '';
     document.getElementById('itemCategory').value = it.category || '';
     document.getElementById('itemLocation').value = it.location || '';
     document.getElementById('itemMinStock').value = it.minStock || 0;
-    document.getElementById('itemImageUrl').value = it.imageUrl || '';
     document.getElementById('itemBaseUnitType').value = it.baseUnitType || 'weight';
     (it.units || []).forEach(u => addUnitRow(u));
     if(!it.units || !it.units.length) addUnitRow();
+
+    // عند التعديل: نخفي حقل المخزون الافتتاحي ونعرض الإجمالي الحالي كمعلومة فقط
+    document.getElementById('itemNewStockRow').style.display = 'none';
+    document.getElementById('itemCurrentStockInfo').style.display = 'block';
+    const total = itemTotalStock(it.id);
+    const unitLabel = (it.baseUnitType || 'weight') === 'weight' ? 'كجم' : 'قطعة';
+    document.getElementById('itemCurrentStockValue').value = `${fmt(total)} ${unitLabel}`;
   }else{
     document.getElementById('itemModalTitle').textContent = 'صنف جديد';
     document.getElementById('itemId').value = '';
     document.getElementById('itemName').value = '';
-    document.getElementById('itemBarcode').value = '';
     document.getElementById('itemCategory').value = '';
     document.getElementById('itemLocation').value = '';
     document.getElementById('itemMinStock').value = 0;
-    document.getElementById('itemImageUrl').value = '';
     document.getElementById('itemBaseUnitType').value = 'weight';
+    document.getElementById('itemInitialQty').value = 0;
     addUnitRow();
+
+    // عند الإضافة: نعرض حقل المخزون الافتتاحي ونخفي معلومة الإجمالي الحالي
+    document.getElementById('itemNewStockRow').style.display = '';
+    document.getElementById('itemCurrentStockInfo').style.display = 'none';
   }
-  updateImgPreview();
   document.getElementById('itemModalOverlay').classList.add('open');
 }
 function closeItemModal(){ document.getElementById('itemModalOverlay').classList.remove('open'); }
@@ -2786,11 +2805,9 @@ async function saveItem(){
 
   const payload = {
     name,
-    barcode: document.getElementById('itemBarcode').value.trim(),
     category: document.getElementById('itemCategory').value.trim(),
     location: document.getElementById('itemLocation').value.trim(),
     minStock: parseFloat(document.getElementById('itemMinStock').value) || 0,
-    imageUrl: document.getElementById('itemImageUrl').value.trim(),
     baseUnitType: document.getElementById('itemBaseUnitType').value,
     units,
     baseUnit: units[0].name,
@@ -2804,8 +2821,15 @@ async function saveItem(){
   }else{
     payload.currentStock = 0;
     payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-    await db.collection('items').add(payload);
+    const newDoc = await db.collection('items').add(payload);
     await logAction('items', 'إضافة صنف', name);
+
+    // تسجيل المخزون الافتتاحي لو المستخدم دخل كمية أول ما ضاف الصنف
+    const initialQty = parseFloat(document.getElementById('itemInitialQty').value) || 0;
+    const initialWarehouse = document.getElementById('itemInitialWarehouse').value;
+    if(initialQty > 0 && initialWarehouse){
+      await adjustStock(newDoc.id, initialWarehouse, initialQty, 'in', 'مخزون افتتاحي عند إضافة الصنف');
+    }
     showToast('تم إضافة الصنف');
   }
   closeItemModal();
@@ -3044,9 +3068,47 @@ function renderWarehousesTable(){
       <td><b>${escapeHtml(w.name)}</b></td>
       <td>${escapeHtml(w.location || '—')}</td>
       <td>${itemCount}</td>
-      <td><span class="btn-icon danger" onclick="deleteWarehouse('${w.id}')">🗑</span></td>
+      <td>
+        <span class="btn-icon" title="تفاصيل البضاعة الموجودة" onclick="openWarehouseDetails('${w.id}')">📦</span>
+        <span class="btn-icon danger" onclick="deleteWarehouse('${w.id}')">🗑</span>
+      </td>
     </tr>`;
   }).join('') || '<tr><td colspan="4" style="text-align:center; color:var(--muted);">لا توجد مخازن بعد</td></tr>';
+}
+
+/* بيعرض تفاصيل كل الأصناف الموجودة فعليًا في مخزن معيّن (الكمية + القيمة التقديرية)
+   باستخدام نفس مودال كشف الحساب (statementModalOverlay) عشان نستفيد بزرار الطباعة/PDF الجاهز */
+function openWarehouseDetails(warehouseId){
+  const wh = allWarehouses.find(w => w.id === warehouseId);
+  document.getElementById('statementTitle').textContent = 'تفاصيل البضاعة — ' + (wh ? wh.name : '');
+  const body = document.getElementById('statementBody');
+
+  const rows = [];
+  let totalValue = 0;
+  allItems.forEach(it => {
+    const qty = stockFor(it.id, warehouseId);
+    if(qty <= 0) return;
+    const u = (it.units && it.units[0]) ? it.units[0] : { buyPrice:0, factor:1 };
+    const costPerBase = u.factor > 0 ? (u.buyPrice || 0) / u.factor : 0;
+    const value = costPerBase * qty;
+    totalValue += value;
+    rows.push({ name: it.name, category: it.category || '—', qty, unitLabel: (it.baseUnitType === 'count') ? 'قطعة' : 'كجم', value });
+  });
+  rows.sort((a,b) => b.value - a.value);
+
+  if(!rows.length){
+    body.innerHTML = '<div class="empty-state">لا توجد بضاعة مسجلة في هذا المخزن حاليًا</div>';
+  }else{
+    body.innerHTML = `
+      <div class="party-balance" style="font-size:14px; margin-bottom:10px;">إجمالي عدد الأصناف: <b>${rows.length}</b> — القيمة التقديرية الإجمالية: <b class="balance-pos">${fmt(totalValue)} ج</b></div>
+      <table class="data-table" style="font-size:12.5px;">
+        <thead><tr><th>الصنف</th><th>التصنيف</th><th>الكمية</th><th>القيمة التقديرية</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr><td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.category)}</td><td>${fmt(r.qty)} ${r.unitLabel}</td><td>${fmt(r.value)} ج</td></tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+  document.getElementById('statementModalOverlay').classList.add('open');
 }
 
 function openWarehouseModal(){
