@@ -735,6 +735,7 @@
               <option value="low">تحت الحد الأدنى فقط</option>
             </select>
             <button class="btn btn-ghost" style="width:auto;" onclick="openItemsImportModal()">📤 استيراد أصناف من إكسل</button>
+            <button class="btn btn-ghost" style="width:auto; color:var(--red);" onclick="bulkDeleteZeroStockItems()">🗑️ حذف الأصناف رصيدها صفر</button>
             <button class="btn btn-primary" style="width:auto;" onclick="openItemModal()">+ صنف جديد</button>
           </div>
           <div class="table-wrap">
@@ -2847,6 +2848,30 @@ async function deleteItem(itemId){
   if(!confirm(`هل أنت متأكد من طلب حذف الصنف "${it.name}"؟ سيتم إرسال الطلب للمدير.`)) return;
   await createApprovalRequest('delete_item', { itemId }, `حذف صنف: ${it.name}`);
   showToast('تم إرسال طلب الحذف للمدير');
+}
+
+/* حذف كل الأصناف اللي رصيدها صفر دفعة واحدة (عشان تبدأ تضيف أصناف جديدة من غير
+   ما تفضل الأصناف الفارغة القديمة موجودة). إجراء نهائي وغير قابل للتراجع، فمقصور على الأدمن. */
+async function bulkDeleteZeroStockItems(){
+  if(!isAdminUser()){
+    showToast('حذف مجموعة أصناف دفعة واحدة يتطلب صلاحية مدير النظام');
+    return;
+  }
+  const zeroItems = allItems.filter(it => itemTotalStock(it.id) <= 0);
+  if(!zeroItems.length){ showToast('لا توجد أصناف رصيدها صفر حاليًا'); return; }
+
+  if(!confirm(`سيتم حذف ${zeroItems.length} صنف رصيدها صفر نهائيًا من إدارة الأصناف. هذا الإجراء لا يمكن التراجع عنه. متابعة؟`)) return;
+
+  showToast(`جاري حذف ${zeroItems.length} صنف...`);
+  const batchSize = 400; // أقل من حد الـ 500 عملية للـ batch الواحد في Firestore
+  for(let i = 0; i < zeroItems.length; i += batchSize){
+    const chunk = zeroItems.slice(i, i + batchSize);
+    const batch = db.batch();
+    chunk.forEach(it => batch.delete(db.collection('items').doc(it.id)));
+    await batch.commit();
+  }
+  await logAction('items', 'حذف مجموعة أصناف رصيدها صفر', `عدد الأصناف المحذوفة: ${zeroItems.length}`);
+  showToast(`تم حذف ${zeroItems.length} صنف بنجاح`);
 }
 
 /* ---------- Bulk items import from Excel ---------- */
