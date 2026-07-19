@@ -634,6 +634,11 @@
                   <input type="number" id="maxDiscountAmount" placeholder="0.00" min="0">
                   <small style="color:var(--muted); font-size:11px;">لو الموظف طبّق خصم بمبلغ أعلى من ده (سواء أدخل الخصم كنسبة % أو كمبلغ)، الفاتورة لن تُنفذ ولا يُخصم المخزون إلا بعد موافقة المدير. مدير النظام لا يخضع لهذا الحد.</small>
                 </div>
+                <div class="field">
+                  <label>حد الموافقة التلقائية للمشتريات (ج.م)</label>
+                  <input type="number" id="purchaseAutoApprovalLimit" placeholder="0.00" min="0">
+                  <small style="color:var(--muted); font-size:11px;">فواتير الشراء الأقل من أو تساوي هذا المبلغ يتم تنفيذها فوراً للموظف دون انتظار موافقة المدير. اتركه صفر لو عايز كل فواتير الشراء تتنفذ تلقائيًا زي ما هو حاصل دلوقتي (بدون حد).</small>
+                </div>
               </div>
               <button class="btn btn-primary" style="width:auto;" onclick="saveCompany()">حفظ البيانات</button>
             </div>
@@ -2369,16 +2374,18 @@ async function renderTreasuryChart(){
 }
 
 /* ---------- Settings page ---------- */
-let companySettingsCache = { autoApprovalLimit: 0, maxDiscountAmount: 0 };
+let companySettingsCache = { autoApprovalLimit: 0, maxDiscountAmount: 0, purchaseAutoApprovalLimit: 0 };
 
 async function saveCompany(){
   const name = document.getElementById('companyName').value.trim();
   const tax = document.getElementById('companyTax').value.trim();
   const autoApprovalLimit = parseFloat(document.getElementById('autoApprovalLimit').value) || 0;
   const maxDiscountAmount = parseFloat(document.getElementById('maxDiscountAmount').value) || 0;
-  await db.collection('settings').doc('company').set({ name, tax, autoApprovalLimit, maxDiscountAmount }, { merge: true });
+  const purchaseAutoApprovalLimit = parseFloat(document.getElementById('purchaseAutoApprovalLimit').value) || 0;
+  await db.collection('settings').doc('company').set({ name, tax, autoApprovalLimit, maxDiscountAmount, purchaseAutoApprovalLimit }, { merge: true });
   companySettingsCache.autoApprovalLimit = autoApprovalLimit;
   companySettingsCache.maxDiscountAmount = maxDiscountAmount;
+  companySettingsCache.purchaseAutoApprovalLimit = purchaseAutoApprovalLimit;
   showToast('تم حفظ بيانات الشركة');
   renderCartTable();
 }
@@ -2391,8 +2398,10 @@ async function loadCompany(){
     document.getElementById('companyTax').value = d.tax || '';
     document.getElementById('autoApprovalLimit').value = d.autoApprovalLimit || 0;
     document.getElementById('maxDiscountAmount').value = d.maxDiscountAmount || 0;
+    document.getElementById('purchaseAutoApprovalLimit').value = d.purchaseAutoApprovalLimit || 0;
     companySettingsCache.autoApprovalLimit = d.autoApprovalLimit || 0;
     companySettingsCache.maxDiscountAmount = d.maxDiscountAmount || 0;
+    companySettingsCache.purchaseAutoApprovalLimit = d.purchaseAutoApprovalLimit || 0;
   }
 }
 
@@ -5229,6 +5238,16 @@ async function savePurchaseInvoiceInner(){
   const supplier = allSuppliers.find(x => x.id === supplierId);
   const warehouse = allWarehouses.find(w => w.id === warehouseId);
 
+  // جلب حد الموافقة التلقائية للمشتريات من الإعدادات (صفر = بدون حد، كل الفواتير تتنفذ تلقائيًا)
+  const settingsDoc = await db.collection('settings').doc('company').get();
+  const purchaseAutoLimit = settingsDoc.exists ? (settingsDoc.data().purchaseAutoApprovalLimit || 0) : 0;
+  companySettingsCache.purchaseAutoApprovalLimit = purchaseAutoLimit;
+
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  const forceApprovalCrossWarehouse = !isAdmin && !!(currentUser && currentUser.crossWarehouseAccess);
+  const purchaseLimitExceeded = !isAdmin && purchaseAutoLimit > 0 && totals.grandTotal > purchaseAutoLimit;
+  const needsPurchaseApproval = forceApprovalCrossWarehouse || purchaseLimitExceeded;
+
   const invoiceData = {
     number: invoiceNo,
     date: firebase.firestore.FieldValue.serverTimestamp(),
@@ -5241,19 +5260,19 @@ async function savePurchaseInvoiceInner(){
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
-  const isAdmin = currentUser && currentUser.role === 'admin';
-  const forceApprovalCrossWarehouse = !isAdmin && !!(currentUser && currentUser.crossWarehouseAccess);
-
   if(editingInvoiceId && editingInvoiceType === 'purchase'){
     invoiceData.originalId = editingInvoiceId;
     await createApprovalRequest('edit_invoice', { type: 'purchase', newData: invoiceData, originalId: editingInvoiceId }, `تعديل فاتورة شراء #${invoiceNo}: ${invoiceData.supplierName} (${fmt(totals.grandTotal)} ج.م)`);
     showToast('تم إرسال طلب التعديل لمدير النظام للموافقة');
     editingInvoiceId = null;
     editingInvoiceType = null;
-  } else if(forceApprovalCrossWarehouse){
-    // موظف له صلاحية الشراء لأي مخزن — الفاتورة لا تُنفذ إلا بعد موافقة مدير النظام
+  } else if(needsPurchaseApproval){
+    // فاتورة تجاوزت حد الموافقة التلقائية للمشتريات، أو موظف له صلاحية الشراء لأي مخزن — لا تُنفذ إلا بعد موافقة مدير النظام
     invoiceData.status = 'pending_approval';
-    await createApprovalRequest('purchase_invoice', invoiceData, `فاتورة شراء #${invoiceNo}: ${invoiceData.supplierName} (${fmt(totals.grandTotal)} ج.م) — موظف له صلاحية الشراء لأي مخزن — يتطلب موافقة دائمة`);
+    const reason = forceApprovalCrossWarehouse
+      ? 'موظف له صلاحية الشراء لأي مخزن — يتطلب موافقة دائمة'
+      : `تجاوزت الفاتورة حد الموافقة التلقائية للمشتريات (${fmt(purchaseAutoLimit)} ج.م)`;
+    await createApprovalRequest('purchase_invoice', invoiceData, `فاتورة شراء #${invoiceNo}: ${invoiceData.supplierName} (${fmt(totals.grandTotal)} ج.م) — ${reason}`);
     showToast('تم إرسال فاتورة الشراء لمدير النظام للموافقة، ولن يُضاف للمخزون إلا بعد الموافقة');
   } else {
     const pInvRef = await db.collection('purchaseInvoices').add(invoiceData);
