@@ -1501,6 +1501,43 @@
                   </table>
                 </div>
                 <div class="empty-state" id="pcartEmpty">أضف أصنافًا لفاتورة الشراء</div>
+
+                <label style="display:flex; align-items:center; gap:8px; margin-top:14px; padding:10px; border-radius:8px; background:var(--input-bg); border:1px solid var(--border); cursor:pointer;">
+                  <input type="checkbox" id="purchaseAlsoSell" onchange="togglePurchaseAlsoSell()" style="width:auto;">
+                  <span>🔁 سجّل نفس الأصناف كفاتورة بيع في نفس اللحظة</span>
+                </label>
+
+                <div id="purchaseAlsoSellBox" style="display:none; margin-top:10px; padding:12px; border-radius:10px; border:1px dashed var(--accent);">
+                  <small style="color:var(--muted); display:block; margin-bottom:10px;">هيتم حفظ فاتورة الشراء أولاً (تدخل المخزن)، وفورًا بعدها فاتورة بيع بنفس الأصناف والكميات (تخرج من نفس المخزن) — يعني صافي الأثر على المخزون صفر، وهيتسجل ربح البيع الفوري.</small>
+
+                  <div class="table-wrap">
+                    <table class="data-table cart-table">
+                      <thead><tr><th>الصنف</th><th>الكمية</th><th>سعر البيع</th><th>الإجمالي</th></tr></thead>
+                      <tbody id="purchaseAlsoSellItemsBody"></tbody>
+                    </table>
+                  </div>
+
+                  <div class="field" style="margin-top:10px;"><label>العميل</label><select id="purchaseSaleCustomer" onchange="document.getElementById('purchaseSaleCustomerNew').value=''"></select>
+                    <input type="text" id="purchaseSaleCustomerNew" placeholder="أو اكتب اسم عميل جديد (يُسجَّل تلقائيًا عند الحفظ)" oninput="if(this.value) document.getElementById('purchaseSaleCustomer').value=''" style="margin-top:6px; width:100%; padding:9px 12px; border-radius:8px; background:var(--input-bg); border:1px solid var(--border); color:var(--text); font-family:'Cairo'; font-size:12.5px; box-sizing:border-box;">
+                  </div>
+
+                  <div class="field" style="margin-top:10px;"><label>طريقة البيع</label>
+                    <select id="purchaseSalePaymentType" onchange="togglePurchaseSalePaymentAccount()">
+                      <option value="cash">نقدي</option>
+                      <option value="credit">آجل (على حساب العميل)</option>
+                    </select>
+                  </div>
+                  <div class="field" id="purchaseSalePaymentAccountField"><label>التحصيل في</label><select id="purchaseSalePaymentAccount"></select></div>
+
+                  <div class="summary-line"><span>الإجمالي الفرعي</span><b id="pasSumSubtotal">0.00</b></div>
+                  <div class="summary-line"><span>الخصم</span>
+                    <span><input type="number" id="purchaseSaleDiscount" value="0" min="0" oninput="renderPurchaseAlsoSellBox()"> <select id="purchaseSaleDiscountType" onchange="renderPurchaseAlsoSellBox()" style="padding:5px; border-radius:7px; background:var(--input-bg); border:1px solid var(--border); color:var(--text);"><option value="pct">%</option><option value="amt">ج.م</option></select></span>
+                  </div>
+                  <div class="summary-line"><span>ضريبة القيمة المضافة</span>
+                    <span><input type="number" id="purchaseSaleVat" value="14" min="0" oninput="renderPurchaseAlsoSellBox()"> % </span>
+                  </div>
+                  <div class="summary-line total"><span>إجمالي فاتورة البيع (شامل الخصم/الضريبة)</span><b id="pasSumTotal">0.00</b></div>
+                </div>
               </div>
 
               <div class="panel">
@@ -1526,43 +1563,6 @@
                   <span><input type="number" id="purchaseVat" value="14" min="0" oninput="renderPurchaseCartTable()"> % </span>
                 </div>
                 <div class="summary-line total"><span>الإجمالي النهائي</span><b id="psumTotal">0.00</b></div>
-
-                <label style="display:flex; align-items:center; gap:8px; margin-top:14px; padding:10px; border-radius:8px; background:var(--input-bg); border:1px solid var(--border); cursor:pointer;">
-                  <input type="checkbox" id="purchaseAlsoSell" onchange="togglePurchaseAlsoSell()" style="width:auto;">
-                  <span>🔁 سجّل نفس الأصناف كفاتورة بيع في نفس اللحظة</span>
-                </label>
-
-                <div id="purchaseAlsoSellBox" style="display:none; margin-top:10px; padding:12px; border-radius:10px; border:1px dashed var(--accent);">
-                  <small style="color:var(--muted); display:block; margin-bottom:10px;">هيتم حفظ فاتورة الشراء أولاً (تدخل المخزن)، وفورًا بعدها فاتورة بيع بنفس الأصناف والكميات (تخرج من نفس المخزن) — يعني صافي الأثر على المخزون صفر، وهيتسجل ربح البيع الفوري.</small>
-
-                  <div class="field"><label>العميل</label><select id="purchaseSaleCustomer" onchange="document.getElementById('purchaseSaleCustomerNew').value=''"></select>
-                    <input type="text" id="purchaseSaleCustomerNew" placeholder="أو اكتب اسم عميل جديد (يُسجَّل تلقائيًا عند الحفظ)" oninput="if(this.value) document.getElementById('purchaseSaleCustomer').value=''" style="margin-top:6px; width:100%; padding:9px 12px; border-radius:8px; background:var(--input-bg); border:1px solid var(--border); color:var(--text); font-family:'Cairo'; font-size:12.5px; box-sizing:border-box;">
-                  </div>
-
-                  <div class="field" style="margin-top:10px;"><label>طريقة البيع</label>
-                    <select id="purchaseSalePaymentType" onchange="togglePurchaseSalePaymentAccount()">
-                      <option value="cash">نقدي</option>
-                      <option value="credit">آجل (على حساب العميل)</option>
-                    </select>
-                  </div>
-                  <div class="field" id="purchaseSalePaymentAccountField"><label>التحصيل في</label><select id="purchaseSalePaymentAccount"></select></div>
-
-                  <div class="table-wrap" style="margin-top:10px;">
-                    <table class="data-table cart-table">
-                      <thead><tr><th>الصنف</th><th>الكمية</th><th>سعر البيع</th><th>الإجمالي</th></tr></thead>
-                      <tbody id="purchaseAlsoSellItemsBody"></tbody>
-                    </table>
-                  </div>
-
-                  <div class="summary-line"><span>الإجمالي الفرعي</span><b id="pasSumSubtotal">0.00</b></div>
-                  <div class="summary-line"><span>الخصم</span>
-                    <span><input type="number" id="purchaseSaleDiscount" value="0" min="0" oninput="renderPurchaseAlsoSellBox()"> <select id="purchaseSaleDiscountType" onchange="renderPurchaseAlsoSellBox()" style="padding:5px; border-radius:7px; background:var(--input-bg); border:1px solid var(--border); color:var(--text);"><option value="pct">%</option><option value="amt">ج.م</option></select></span>
-                  </div>
-                  <div class="summary-line"><span>ضريبة القيمة المضافة</span>
-                    <span><input type="number" id="purchaseSaleVat" value="14" min="0" oninput="renderPurchaseAlsoSellBox()"> % </span>
-                  </div>
-                  <div class="summary-line total"><span>إجمالي فاتورة البيع</span><b id="pasSumTotal">0.00</b></div>
-                </div>
 
                 <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="savePurchaseInvoice()">حفظ وتأكيد الفاتورة</button>
               </div>
