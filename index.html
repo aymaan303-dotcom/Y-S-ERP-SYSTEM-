@@ -1527,6 +1527,43 @@
                 </div>
                 <div class="summary-line total"><span>الإجمالي النهائي</span><b id="psumTotal">0.00</b></div>
 
+                <label style="display:flex; align-items:center; gap:8px; margin-top:14px; padding:10px; border-radius:8px; background:var(--input-bg); border:1px solid var(--border); cursor:pointer;">
+                  <input type="checkbox" id="purchaseAlsoSell" onchange="togglePurchaseAlsoSell()" style="width:auto;">
+                  <span>🔁 سجّل نفس الأصناف كفاتورة بيع في نفس اللحظة</span>
+                </label>
+
+                <div id="purchaseAlsoSellBox" style="display:none; margin-top:10px; padding:12px; border-radius:10px; border:1px dashed var(--accent);">
+                  <small style="color:var(--muted); display:block; margin-bottom:10px;">هيتم حفظ فاتورة الشراء أولاً (تدخل المخزن)، وفورًا بعدها فاتورة بيع بنفس الأصناف والكميات (تخرج من نفس المخزن) — يعني صافي الأثر على المخزون صفر، وهيتسجل ربح البيع الفوري.</small>
+
+                  <div class="field"><label>العميل</label><select id="purchaseSaleCustomer" onchange="document.getElementById('purchaseSaleCustomerNew').value=''"></select>
+                    <input type="text" id="purchaseSaleCustomerNew" placeholder="أو اكتب اسم عميل جديد (يُسجَّل تلقائيًا عند الحفظ)" oninput="if(this.value) document.getElementById('purchaseSaleCustomer').value=''" style="margin-top:6px; width:100%; padding:9px 12px; border-radius:8px; background:var(--input-bg); border:1px solid var(--border); color:var(--text); font-family:'Cairo'; font-size:12.5px; box-sizing:border-box;">
+                  </div>
+
+                  <div class="field" style="margin-top:10px;"><label>طريقة البيع</label>
+                    <select id="purchaseSalePaymentType" onchange="togglePurchaseSalePaymentAccount()">
+                      <option value="cash">نقدي</option>
+                      <option value="credit">آجل (على حساب العميل)</option>
+                    </select>
+                  </div>
+                  <div class="field" id="purchaseSalePaymentAccountField"><label>التحصيل في</label><select id="purchaseSalePaymentAccount"></select></div>
+
+                  <div class="table-wrap" style="margin-top:10px;">
+                    <table class="data-table cart-table">
+                      <thead><tr><th>الصنف</th><th>الكمية</th><th>سعر البيع</th><th>الإجمالي</th></tr></thead>
+                      <tbody id="purchaseAlsoSellItemsBody"></tbody>
+                    </table>
+                  </div>
+
+                  <div class="summary-line"><span>الإجمالي الفرعي</span><b id="pasSumSubtotal">0.00</b></div>
+                  <div class="summary-line"><span>الخصم</span>
+                    <span><input type="number" id="purchaseSaleDiscount" value="0" min="0" oninput="renderPurchaseAlsoSellBox()"> <select id="purchaseSaleDiscountType" onchange="renderPurchaseAlsoSellBox()" style="padding:5px; border-radius:7px; background:var(--input-bg); border:1px solid var(--border); color:var(--text);"><option value="pct">%</option><option value="amt">ج.م</option></select></span>
+                  </div>
+                  <div class="summary-line"><span>ضريبة القيمة المضافة</span>
+                    <span><input type="number" id="purchaseSaleVat" value="14" min="0" oninput="renderPurchaseAlsoSellBox()"> % </span>
+                  </div>
+                  <div class="summary-line total"><span>إجمالي فاتورة البيع</span><b id="pasSumTotal">0.00</b></div>
+                </div>
+
                 <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="savePurchaseInvoice()">حفظ وتأكيد الفاتورة</button>
               </div>
             </div>
@@ -4356,8 +4393,8 @@ function closePartyModal(){ document.getElementById('partyModalOverlay').classLi
 
 /* بيحل معرّف العميل/المورد: لو المستخدم كتب اسم جديد يدوي بدل الاختيار من القائمة،
    بيدور على اسم مطابق موجود فعلاً (عشان ميعملش تكرار)، ولو مش موجود بينشئه فورًا. */
-async function resolvePartyId(kind){
-  const selectId = kind === 'customer' ? 'saleCustomer' : 'purchaseSupplier';
+async function resolvePartyId(kind, selectIdOverride){
+  const selectId = selectIdOverride || (kind === 'customer' ? 'saleCustomer' : 'purchaseSupplier');
   const newInput = document.getElementById(selectId + 'New');
   const newName = newInput ? newInput.value.trim() : '';
   if(!newName){
@@ -4498,6 +4535,8 @@ function fillCustomerSelects(){
   const opts = '<option value="">— عميل نقدي —</option>' + allCustomers.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
   const el = document.getElementById('saleCustomer');
   if(el) el.innerHTML = opts;
+  const el2 = document.getElementById('purchaseSaleCustomer');
+  if(el2) el2.innerHTML = opts;
 }
 
 /* =========================================================
@@ -4768,7 +4807,7 @@ function fillAccountSelects(){
     ...filteredTreasuries.map(t => `<option value="treasury:${t.id}">💵 ${escapeHtml(t.name)}</option>`),
     ...filteredBanks.map(b => `<option value="bank:${b.id}">🏦 ${escapeHtml(b.name)}</option>`),
   ].join('');
-  ['voucherAccountId','salePaymentAccount','purchasePaymentAccount','checkClearAccount','smPaymentAccount','ownerVoucherAccountId','transferFromAccount','transferToAccount'].forEach(id => {
+  ['voucherAccountId','salePaymentAccount','purchasePaymentAccount','purchaseSalePaymentAccount','checkClearAccount','smPaymentAccount','ownerVoucherAccountId','transferFromAccount','transferToAccount'].forEach(id => {
     const el = document.getElementById(id);
     if(el){ const cur = el.value; el.innerHTML = opts; if(cur) el.value = cur; }
   });
@@ -6672,7 +6711,115 @@ function renderPurchaseCartTable(){
 
   document.getElementById('psumSubtotal').textContent = fmt(subtotal);
   document.getElementById('psumTotal').textContent = fmt(grandTotal);
+
+  const alsoSellChk = document.getElementById('purchaseAlsoSell');
+  if(alsoSellChk && alsoSellChk.checked) renderPurchaseAlsoSellBox();
+
   return { subtotal, discountAmt, vatAmt, grandTotal };
+}
+
+/* ---------- شراء وبيع فوري (تسجيل فاتورة بيع مرتبطة بفاتورة الشراء) ---------- */
+function togglePurchaseAlsoSell(){
+  const on = document.getElementById('purchaseAlsoSell').checked;
+  document.getElementById('purchaseAlsoSellBox').style.display = on ? 'block' : 'none';
+  if(on){
+    fillCustomerSelects();
+    fillAccountSelects();
+    togglePurchaseSalePaymentAccount();
+    renderPurchaseAlsoSellBox();
+  }
+}
+
+function togglePurchaseSalePaymentAccount(){
+  const isCash = document.getElementById('purchaseSalePaymentType').value === 'cash';
+  document.getElementById('purchaseSalePaymentAccountField').style.display = isCash ? 'block' : 'none';
+}
+
+/* بيحسب سعر البيع الافتراضي لبند فاتورة الشراء اعتمادًا على سعر بيع نفس الوحدة المسجل على الصنف */
+function computeDefaultSellPriceForPurchaseLine(c){
+  const it = allItems.find(i => i.id === c.itemId);
+  if(!it || !it.units || !it.units.length) return c.price || 0;
+  const u = it.units.find(x => x.name === c.unit) || it.units[0];
+  if(c.buyBy === 'weight') return u.factor > 0 ? (u.sellPrice || 0) / u.factor : (u.sellPrice || 0);
+  return u.count > 0 ? (u.sellPrice || 0) / u.count : (u.sellPrice || 0);
+}
+
+function renderPurchaseAlsoSellBox(){
+  const tbody = document.getElementById('purchaseAlsoSellItemsBody');
+  if(!tbody) return;
+  let subtotal = 0;
+  tbody.innerHTML = pcart.map((c, idx) => {
+    if(c.linkedSellPrice === undefined || c.linkedSellPrice === null){
+      c.linkedSellPrice = c.isManual ? c.price : computeDefaultSellPriceForPurchaseLine(c);
+    }
+    const lineTotal = c.qty * c.linkedSellPrice;
+    subtotal += lineTotal;
+    return `<tr>
+      <td>${escapeHtml(c.name)} ${c.isManual ? '<small style="color:var(--amber)">(تصنيع)</small>' : ''}</td>
+      <td>${fmt(c.qty)}</td>
+      <td><input type="number" min="0" step="0.01" value="${c.linkedSellPrice}" onchange="pcart[${idx}].linkedSellPrice=parseFloat(this.value)||0; renderPurchaseAlsoSellBox();"></td>
+      <td>${fmt(lineTotal)}</td>
+    </tr>`;
+  }).join('');
+
+  const discountVal = parseFloat(document.getElementById('purchaseSaleDiscount').value) || 0;
+  const discountType = document.getElementById('purchaseSaleDiscountType').value;
+  const discountAmt = discountType === 'pct' ? subtotal * discountVal / 100 : discountVal;
+  const afterDiscount = Math.max(subtotal - discountAmt, 0);
+  const vatRate = parseFloat(document.getElementById('purchaseSaleVat').value) || 0;
+  const vatAmt = afterDiscount * vatRate / 100;
+  const grandTotal = afterDiscount + vatAmt;
+
+  document.getElementById('pasSumSubtotal').textContent = fmt(subtotal);
+  document.getElementById('pasSumTotal').textContent = fmt(grandTotal);
+  return { subtotal, discountAmt, vatAmt, grandTotal };
+}
+
+/* بينفذ فاتورة بيع فورية بنفس أصناف فاتورة الشراء اللي اتحفظت (تخرج من نفس المخزن مباشرة) */
+async function createLinkedSaleFromPurchase(purchasePcart, warehouseId, warehouse, purchaseInvoiceNo){
+  if(!purchasePcart.length) return;
+  const customerId = await resolvePartyId('customer', 'purchaseSaleCustomer');
+  const paymentType = document.getElementById('purchaseSalePaymentType').value;
+  if(paymentType === 'credit' && !customerId){ showToast('البيع الفوري المرتبط يتطلب اختيار عميل — لم يتم تنفيذه، نفّذه يدويًا من شاشة المبيعات'); return; }
+
+  let accountType = '', accountId = '';
+  if(paymentType === 'cash'){
+    const accVal = document.getElementById('purchaseSalePaymentAccount').value;
+    if(!accVal){ showToast('اختار حساب التحصيل للبيع الفوري المرتبط — لم يتم تنفيذه، نفّذه يدويًا من شاشة المبيعات'); return; }
+    [accountType, accountId] = accVal.split(':');
+  }
+
+  const totals = renderPurchaseAlsoSellBox();
+  const invoiceNo = await getNextInvoiceNumber();
+  const customer = allCustomers.find(x => x.id === customerId);
+
+  const invoiceData = {
+    number: invoiceNo,
+    date: firebase.firestore.FieldValue.serverTimestamp(),
+    customerId: customerId || '',
+    customerName: customer ? customer.name : 'عميل نقدي',
+    warehouseId, warehouseName: warehouse ? warehouse.name : '',
+    items: purchasePcart.map(c => ({ itemId:c.itemId, name:c.name, unit:c.unit, qty:c.qty, price:c.linkedSellPrice, total: c.qty*c.linkedSellPrice, returnedQty: 0, isManual: c.isManual || false, sellBy: c.buyBy || null, baseUnitType: c.baseUnitType || null })),
+    subtotal: totals.subtotal, discount: totals.discountAmt, vat: totals.vatAmt, total: totals.grandTotal,
+    paymentType, accountType, accountId, status: 'confirmed',
+    linkedPurchaseInvoiceNumber: purchaseInvoiceNo,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  await db.collection('salesInvoices').add(invoiceData);
+  const saleCartItems = purchasePcart.map(c => ({ itemId:c.itemId, unit:c.unit, qty:c.qty, sellBy:c.buyBy, price:c.linkedSellPrice, isManual: c.isManual || false }));
+  await Promise.all(saleCartItems.filter(c => !c.isManual).map(c => {
+    const delta = lineQtyToBase(c);
+    return adjustStock(c.itemId, warehouseId, -delta, 'out', 'فاتورة بيع مرتبطة بفاتورة شراء #' + purchaseInvoiceNo, { sellBy: c.sellBy, sellQty: c.qty });
+  }));
+  if(paymentType === 'credit'){
+    await adjustPartyBalance('customer', customerId, totals.grandTotal, 'invoice', String(invoiceNo), '');
+  }else{
+    await adjustAccountBalance(accountType, accountId, totals.grandTotal);
+  }
+  await postSalesInvoiceJournal(invoiceNo, paymentType, totals, saleCartItems);
+  await logAction('sales', 'فاتورة بيع (مرتبطة بفاتورة شراء #' + purchaseInvoiceNo + ')', '#' + invoiceNo + ' - ' + fmt(totals.grandTotal) + ' ج.م');
+  showToast('تم أيضًا حفظ فاتورة بيع مرتبطة رقم ' + invoiceNo);
 }
 
 async function getNextPurchaseInvoiceNumber(){
@@ -6753,6 +6900,9 @@ async function savePurchaseInvoiceInner(){
     showToast('تم إرسال طلب التعديل لمدير النظام للموافقة');
     editingInvoiceId = null;
     editingInvoiceType = null;
+    if(document.getElementById('purchaseAlsoSell').checked){
+      showToast('لن يتم تنفيذ البيع الفوري المرتبط لأن الفاتورة قيد تعديل يحتاج موافقة — يمكن تسجيله يدويًا من شاشة المبيعات وقتها');
+    }
   } else if(needsPurchaseApproval){
     // فاتورة تجاوزت حد الموافقة التلقائية للمشتريات، أو موظف له صلاحية الشراء لأي مخزن — لا تُنفذ إلا بعد موافقة مدير النظام
     invoiceData.status = 'pending_approval';
@@ -6761,6 +6911,9 @@ async function savePurchaseInvoiceInner(){
       : `تجاوزت الفاتورة حد الموافقة التلقائية للمشتريات (${fmt(purchaseAutoLimit)} ج.م)`;
     await createApprovalRequest('purchase_invoice', invoiceData, `فاتورة شراء #${invoiceNo}: ${invoiceData.supplierName} (${fmt(totals.grandTotal)} ج.م) — ${reason}`);
     showToast('تم إرسال فاتورة الشراء لمدير النظام للموافقة، ولن يُضاف للمخزون إلا بعد الموافقة');
+    if(document.getElementById('purchaseAlsoSell').checked){
+      showToast('لن يتم تنفيذ البيع الفوري المرتبط إلا بعد موافقة المدير على فاتورة الشراء — يمكن تسجيله يدويًا من شاشة المبيعات وقتها');
+    }
   } else {
     const pInvRef = await db.collection('purchaseInvoices').add(invoiceData);
 
@@ -6799,9 +6952,17 @@ async function savePurchaseInvoiceInner(){
     await logAction('purchases', 'فاتورة شراء', '#' + invoiceNo + ' - ' + fmt(totals.grandTotal) + ' ج.م');
 
     showToast('تم حفظ فاتورة الشراء رقم ' + invoiceNo);
+
+    const alsoSellChk = document.getElementById('purchaseAlsoSell');
+    if(alsoSellChk && alsoSellChk.checked){
+      await createLinkedSaleFromPurchase(pcart, warehouseId, warehouse, invoiceNo);
+    }
   }
   pcart = [];
   document.getElementById('purchaseDiscount').value = 0;
+  document.getElementById('purchaseAlsoSell').checked = false;
+  document.getElementById('purchaseAlsoSellBox').style.display = 'none';
+  document.getElementById('purchaseSaleDiscount').value = 0;
   renderPurchaseCartTable();
   switchPurTab('invoices');
 }
