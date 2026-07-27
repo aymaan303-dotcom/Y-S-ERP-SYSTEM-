@@ -1838,7 +1838,7 @@
           <div id="mftab-history" style="display:none;">
             <div class="table-wrap">
               <table class="data-table">
-                <thead><tr><th>رقم الأمر</th><th>التاريخ</th><th>المخزن</th><th>الخامات</th><th>المنتج الناتج</th><th>الكمية الناتجة</th><th>بواقي ناتجة</th><th>إجمالي التكلفة</th><th>تكلفة الوحدة</th></tr></thead>
+                <thead><tr><th>رقم الأمر</th><th>التاريخ</th><th>المخزن</th><th>الخامات</th><th>المنتج الناتج</th><th>الكمية الناتجة</th><th>بواقي ناتجة</th><th>إجمالي التكلفة</th><th>تكلفة الوحدة</th><th>النوع / الحالة</th></tr></thead>
                 <tbody id="mfgHistoryTableBody"></tbody>
               </table>
             </div>
@@ -7244,6 +7244,21 @@ function ensurePendingManufacturingLoaded(){
   });
 }
 
+/* بيحمّل كل بنود "تصنيع معلق" مهما كانت حالتها (معلق أو تم بيعه)، عشان نلحق بيها البنود اليدوية
+   وبنود فواتير الشراء اللي اتسجّلت قبل ما تبقى مربوطة برقم أمر تصنيع (manufacturingOrderNo) —
+   ودي بتظهر في سجل أوامر التصنيع الموحّد جنب أوامر التصنيع الفعلية بدل ما تختفي تمامًا لما تتباع. */
+let allPendingManufacturingAll = [];
+let pendingManufacturingAllListenerStarted = false;
+function ensurePendingManufacturingAllLoaded(){
+  if(pendingManufacturingAllListenerStarted) return;
+  pendingManufacturingAllListenerStarted = true;
+  db.collection('pendingManufacturing').onSnapshot(snap => {
+    allPendingManufacturingAll = [];
+    snap.forEach(d => allPendingManufacturingAll.push({ id:d.id, ...d.data() }));
+    renderMfgHistoryTable();
+  }, err => console.error('pendingManufacturing (all) error:', err));
+}
+
 function renderPendingManufacturingTable(){
   const rowsHtml = allPendingManufacturing.map(m => {
     const dt = m.createdAt && m.createdAt.toDate ? m.createdAt.toDate() : new Date();
@@ -7367,6 +7382,7 @@ function loadManufacturingPage(){
   ensureAccountsLoaded();
   ensurePartiesLoaded();
   ensureManufacturingOrdersLoaded();
+  ensurePendingManufacturingAllLoaded();
   ensureMfgRemnantsLoaded();
   ensurePendingManufacturingLoaded();
   fillMfgWarehouseSelect();
@@ -7950,26 +7966,61 @@ function ensureManufacturingOrdersLoaded(){
   }, err => showLoadError('سجل أوامر التصنيع', err));
 }
 
+/* السجل الموحّد لكل حركات "التصنيع": أوامر التصنيع الفعلية (manufacturingOrders) + أي بند تصنيع
+   معلق مش مربوط بأمر تصنيع (يعني اتضاف يدويًا قبل هذا التحديث، أو جاء من بند يدوي في فاتورة شراء) —
+   كله بيتعرض هنا مرتب بالتاريخ الأحدث أولًا، بدل ما يتوه أو يختفي البند لما يتباع. */
 function renderMfgHistoryTable(){
   const tbody = document.getElementById('mfgHistoryTableBody');
   if(!tbody) return;
-  document.getElementById('mfgHistoryEmpty').style.display = allManufacturingOrders.length ? 'none' : 'block';
-  tbody.innerHTML = allManufacturingOrders.map(o => {
-    const dt = o.date && o.date.toDate ? o.date.toDate() : new Date();
-    const rawSummary = (o.rawMaterials || []).map(r => `${escapeHtml(r.name)} (${fmt(r.qty)})${r.source === 'remnant' ? ' <small style="color:var(--amber)">بواقي</small>' : ''}`).join('، ');
+
+  const orderRows = allManufacturingOrders.map(o => {
+    const dt = o.date && o.date.toDate ? o.date.toDate() : (o.createdAt && o.createdAt.toDate ? o.createdAt.toDate() : new Date(0));
+    const rawSummary = (o.rawMaterials || []).map(r => `${escapeHtml(r.name)} (${fmt(r.qty)})${r.source === 'remnant' ? ' <small style="color:var(--amber)">بواقي</small>' : ''}`).join('، ') || (o.isManualEntry ? '—' : '');
     const remSummary = (o.remnantsProduced || []).map(r => `${escapeHtml(r.name)} (${fmt(r.qty)} ${r.mode === 'weight' ? 'كجم' : 'قطعة'})`).join('، ') || '—';
-    return `<tr>
-      <td><b>#${o.number}</b></td>
-      <td>${dt.toLocaleDateString('ar-EG-u-nu-latn')}</td>
-      <td>${escapeHtml(o.warehouseName || '—')}</td>
-      <td style="max-width:220px; font-size:12px; color:var(--muted);">${rawSummary}</td>
-      <td>${escapeHtml(o.outputName || o.outputItemName || '')}</td>
-      <td>${fmt(o.outputQty)} ${o.outputMode === 'weight' ? 'كجم' : 'قطعة'}</td>
-      <td style="max-width:180px; font-size:12px; color:var(--muted);">${remSummary}</td>
-      <td>${fmt(o.totalCost)}</td>
-      <td>${fmt(o.unitCost)}</td>
-    </tr>`;
-  }).join('');
+    return {
+      time: dt.getTime(),
+      html: `<tr>
+        <td><b>#${o.number}</b></td>
+        <td>${dt.toLocaleDateString('ar-EG-u-nu-latn')}</td>
+        <td>${escapeHtml(o.warehouseName || '—')}</td>
+        <td style="max-width:220px; font-size:12px; color:var(--muted);">${rawSummary}</td>
+        <td>${escapeHtml(o.outputName || o.outputItemName || '')}</td>
+        <td>${fmt(o.outputQty)} ${o.outputMode === 'weight' ? 'كجم' : 'قطعة'}</td>
+        <td style="max-width:180px; font-size:12px; color:var(--muted);">${remSummary}</td>
+        <td>${fmt(o.totalCost)}</td>
+        <td>${fmt(o.unitCost)}</td>
+        <td>${o.isManualEntry ? '<span class="badge warn">بند يدوي</span>' : '<span class="badge ok">أمر تصنيع</span>'}</td>
+      </tr>`
+    };
+  });
+
+  // بنود التصنيع المعلقة اللي مالهاش رقم أمر تصنيع مرتبط بيها (يدوي قديم، أو من فاتورة شراء)
+  const standaloneRows = allPendingManufacturingAll.filter(m => !m.manufacturingOrderNo).map(m => {
+    const dt = m.createdAt && m.createdAt.toDate ? m.createdAt.toDate() : new Date(0);
+    const source = m.purchaseInvoiceNumber ? ('فاتورة شراء #' + m.purchaseInvoiceNumber) : 'بند يدوي';
+    const statusBadge = m.status === 'sold'
+      ? '<span class="badge ok">تم البيع' + (m.salesInvoiceNumber ? ' (فاتورة #' + m.salesInvoiceNumber + ')' : '') + '</span>'
+      : '<span class="badge warn">معلق</span>';
+    return {
+      time: dt.getTime(),
+      html: `<tr>
+        <td>—</td>
+        <td>${dt.toLocaleDateString('ar-EG-u-nu-latn')}</td>
+        <td>${escapeHtml(m.warehouseName || '—')}</td>
+        <td style="max-width:220px; font-size:12px; color:var(--muted);">${escapeHtml(source)}</td>
+        <td>${escapeHtml(m.name || '')}</td>
+        <td>${fmt(m.qty)}</td>
+        <td>—</td>
+        <td>${fmt((m.qty || 0) * (m.buyPrice || 0))}</td>
+        <td>${fmt(m.buyPrice)}</td>
+        <td>${statusBadge}</td>
+      </tr>`
+    };
+  });
+
+  const allRows = orderRows.concat(standaloneRows).sort((a, b) => b.time - a.time);
+  document.getElementById('mfgHistoryEmpty').style.display = allRows.length ? 'none' : 'block';
+  tbody.innerHTML = allRows.map(r => r.html).join('');
 }
 
 function fillSupplierSelects(){
