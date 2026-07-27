@@ -5124,6 +5124,7 @@ async function adjustPartyBalance(partyType, partyId, delta, type, ref, note){
 async function openStatement(partyType, partyId){
   ensureSalesInvoicesLoaded();
   ensurePurchaseInvoicesLoaded();
+  ensureChecksLoaded();
   const list = partyType === 'customer' ? allCustomers : allSuppliers;
   const p = list.find(x => x.id === partyId);
   document.getElementById('statementTitle').textContent = 'كشف حساب — ' + (p ? p.name : '');
@@ -5156,20 +5157,28 @@ async function openStatement(partyType, partyId){
     const d = doc.data();
     const dt = d.date && d.date.toDate ? d.date.toDate() : new Date();
     const color = d.amount >= 0 ? 'var(--red)' : 'var(--green)';
-    // فقط للأدمن ولحركات فاتورة بيع/شراء: الصف بيبقى قابل للضغط عشان يفتح الفاتورة الأصلية
-    // مباشرة (في شاشة المبيعات/المشتريات) لتسهيل التعديل أو الحذف عليها لو محتاج.
-    let invId = null;
+    // فقط للأدمن: أي حركة فاتورة بيع/شراء، سند قبض/صرف، أو شيك — الصف بيبقى قابل للضغط عشان
+    // يفتح المستند الأصلي مباشرة (فاتورة، سند، أو شيك) لتسهيل التعديل أو الحذف عليه لو محتاج.
+    let openRef = null;
     if((d.type === 'invoice' || d.type === 'purchase') && d.ref){
       const refNum = parseInt(d.ref, 10);
       const inv = d.type === 'invoice'
         ? allSalesInvoices.find(i => i.number === refNum)
         : allPurchaseInvoices.find(i => i.number === refNum);
-      if(inv) invId = inv.id;
+      if(inv) openRef = inv.id;
+    } else if((d.type === 'receipt' || d.type === 'payment') && d.ref){
+      openRef = d.ref; // معرّف مستند السند نفسه
+    } else if((d.type === 'check_in' || d.type === 'check_out' || d.type === 'check_bounce') && d.ref){
+      openRef = d.ref; // رقم الشيك
     }
-    const clickable = isAdmin && invId;
-    rows += `<div class="movement-row" style="flex-direction:column; align-items:stretch; gap:4px;${clickable ? ' cursor:pointer;' : ''}"${clickable ? ` onclick="openInvoiceFromStatement('${d.type}', '${invId}')" title="اضغط لفتح الفاتورة الأصلية"` : ''}>
+    const clickable = isAdmin && openRef;
+    const actionLabel = (d.type === 'invoice' || d.type === 'purchase') ? 'فتح الفاتورة الأصلية'
+      : (d.type === 'receipt' || d.type === 'payment') ? 'فتح السند الأصلي' : 'فتح الشيك';
+    // ref ممكن يكون نص أدخله المستخدم يدويًا (رقم شيك) فلازم نأمّنه قبل حقنه جوه onclick
+    const jsSafeRef = clickable ? String(openRef).replace(/\\/g, '\\\\').replace(/'/g, "\\'") : '';
+    rows += `<div class="movement-row" style="flex-direction:column; align-items:stretch; gap:4px;${clickable ? ' cursor:pointer;' : ''}"${clickable ? ` onclick="openSourceFromStatement('${d.type}', '${jsSafeRef}')" title="اضغط لـ${actionLabel}"` : ''}>
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span>${dt.toLocaleDateString('ar-EG-u-nu-latn')} — ${escapeHtml(typeLabel[d.type] || d.type)}${d.ref ? ' #' + escapeHtml(d.ref) : ''}${d.note ? ' · ' + escapeHtml(d.note) : ''}${clickable ? ' <small style="color:var(--accent, #6aa9ff);">(اضغط لفتح الفاتورة)</small>' : ''}</span>
+        <span>${dt.toLocaleDateString('ar-EG-u-nu-latn')} — ${escapeHtml(typeLabel[d.type] || d.type)}${d.ref ? ' #' + escapeHtml(d.ref) : ''}${d.note ? ' · ' + escapeHtml(d.note) : ''}${clickable ? ` <small style="color:var(--accent, #6aa9ff);">(اضغط لـ${actionLabel})</small>` : ''}</span>
         <b style="color:${color}">${d.amount >= 0 ? '+' : ''}${fmt(d.amount)}</b>
       </div>`;
     // لو الحركة فاتورة بيع أو شراء، نعرض تفاصيل أصنافها كاملة تحتها مباشرة
@@ -5188,37 +5197,74 @@ async function openStatement(partyType, partyId){
   document.getElementById('statementModalOverlay').classList.add('open');
 }
 
-/* بيفتح الفاتورة الأصلية (بيع أو شراء) من داخل كشف الحساب — الأدمن بس اللي يقدر يستخدمها،
-   عشان يوصل بسرعة لأيقونات التعديل/الحذف الفعلية على الفاتورة من غير ما يدوّر عليها يدويًا. */
-function openInvoiceFromStatement(type, invId){
+/* بيفتح المستند الأصلي (فاتورة بيع/شراء، سند قبض/صرف، أو شيك) من داخل كشف الحساب — الأدمن بس
+   اللي يقدر يستخدمها، عشان يوصل بسرعة لأيقونات التعديل/الحذف الفعلية من غير ما يدوّر عليها يدويًا.
+   ملحوظة: السندات والشيكات القديمة اللي اتسجّلت قبل تفعيل هذه الميزة مش هتكون قابلة للضغط، لأن
+   حركة الحساب بتاعتها متسجلتش وقتها بمرجع يربطها بالمستند الأصلي. */
+function scrollAndHighlightRow(rowId, attemptsLeft){
+  attemptsLeft = attemptsLeft == null ? 15 : attemptsLeft;
+  const row = document.getElementById(rowId);
+  if(!row){
+    if(attemptsLeft > 0) setTimeout(() => scrollAndHighlightRow(rowId, attemptsLeft - 1), 150);
+    return;
+  }
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const prevBg = row.style.backgroundColor;
+  row.style.backgroundColor = 'rgba(255, 200, 0, 0.18)';
+  setTimeout(() => { row.style.backgroundColor = prevBg; }, 2200);
+}
+
+function findCheckAndHighlight(checkNumber, attemptsLeft){
+  attemptsLeft = attemptsLeft == null ? 15 : attemptsLeft;
+  const check = allChecks.find(c => c.checkNumber === checkNumber);
+  if(check){
+    renderChecksTable();
+    scrollAndHighlightRow('row-check-' + check.id);
+  } else if(attemptsLeft > 0){
+    setTimeout(() => findCheckAndHighlight(checkNumber, attemptsLeft - 1), 150);
+  } else {
+    showToast('تعذر العثور على الشيك رقم ' + checkNumber);
+  }
+}
+
+function openSourceFromStatement(type, ref){
   if(!currentUser || currentUser.role !== 'admin') return;
   closeStatementModal();
-  const key = (type === 'invoice' ? 'sale-' : 'purchase-') + invId;
-  if(type === 'invoice'){
-    goPage('sales');
-    switchSTab('invoices');
-  } else {
-    goPage('purchases');
-    // نفضّي أي فلتر/بحث نشط على قائمة فواتير الشراء عشان نضمن إن الفاتورة المطلوبة ظاهرة فعلًا
-    const searchEl = document.getElementById('purchaseInvoiceSearch');
-    const whFilterEl = document.getElementById('purchaseInvoiceWarehouseFilter');
-    if(searchEl) searchEl.value = '';
-    if(whFilterEl) whFilterEl.value = '';
-    renderPurchaseInvoicesTable();
-    switchPurTab('invoices');
-  }
-  setTimeout(() => {
-    const detailsRow = document.getElementById('details-' + key);
-    if(!detailsRow) return;
-    detailsRow.style.display = '';
-    detailsRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const mainRow = detailsRow.previousElementSibling;
-    if(mainRow){
-      const prevBg = mainRow.style.backgroundColor;
-      mainRow.style.backgroundColor = 'rgba(255, 200, 0, 0.18)';
-      setTimeout(() => { mainRow.style.backgroundColor = prevBg; }, 2200);
+
+  if(type === 'invoice' || type === 'purchase'){
+    const invId = ref;
+    const key = (type === 'invoice' ? 'sale-' : 'purchase-') + invId;
+    if(type === 'invoice'){
+      goPage('sales');
+      switchSTab('invoices');
+    } else {
+      goPage('purchases');
+      // نفضّي أي فلتر/بحث نشط على قائمة فواتير الشراء عشان نضمن إن الفاتورة المطلوبة ظاهرة فعلًا
+      const searchEl = document.getElementById('purchaseInvoiceSearch');
+      const whFilterEl = document.getElementById('purchaseInvoiceWarehouseFilter');
+      if(searchEl) searchEl.value = '';
+      if(whFilterEl) whFilterEl.value = '';
+      renderPurchaseInvoicesTable();
+      switchPurTab('invoices');
     }
-  }, 200);
+    setTimeout(() => {
+      const detailsRow = document.getElementById('details-' + key);
+      if(detailsRow) detailsRow.style.display = '';
+    }, 200);
+    scrollAndHighlightRow('row-' + key);
+  }
+  else if(type === 'receipt' || type === 'payment'){
+    goPage('treasury');
+    switchTTab('vouchers');
+    scrollAndHighlightRow('row-voucher-' + ref);
+  }
+  else if(type === 'check_in' || type === 'check_out' || type === 'check_bounce'){
+    goPage('treasury');
+    switchTTab('checks');
+    const filterEl = document.getElementById('checkFilter');
+    if(filterEl && filterEl.value !== 'all') filterEl.value = 'all';
+    findCheckAndHighlight(ref);
+  }
 }
 function closeStatementModal(){ document.getElementById('statementModalOverlay').classList.remove('open'); }
 
@@ -6398,10 +6444,10 @@ async function processApprovalSilent(requestId, isApproved){
       // تطبيق الجديد
       if(newData.type === 'receipt'){
         await adjustAccountBalance(newData.accountType, newData.accountId, newData.amount);
-        if(newData.partyId) await adjustPartyBalance(newData.partyType, newData.partyId, -newData.amount, 'receipt', '', newData.note);
+        if(newData.partyId) await adjustPartyBalance(newData.partyType, newData.partyId, -newData.amount, 'receipt', originalId, newData.note);
       } else {
         await adjustAccountBalance(newData.accountType, newData.accountId, -newData.amount);
-        if(newData.partyId) await adjustPartyBalance(newData.partyType, newData.partyId, newData.amount, 'payment', '', newData.note);
+        if(newData.partyId) await adjustPartyBalance(newData.partyType, newData.partyId, newData.amount, 'payment', originalId, newData.note);
       }
 
       await db.collection('vouchers').doc(originalId).update(newData);
@@ -6520,9 +6566,9 @@ async function saveVoucher(btn){
       postVoucherJournal(type, amount, partyType, note, vRef.id),
     ];
     if(partyType === 'customer' && partyId){
-      jobs.push(adjustPartyBalance('customer', partyId, type === 'receipt' ? -amount : amount, type, '', note));
+      jobs.push(adjustPartyBalance('customer', partyId, type === 'receipt' ? -amount : amount, type, vRef.id, note));
     }else if(partyType === 'supplier' && partyId){
-      jobs.push(adjustPartyBalance('supplier', partyId, type === 'payment' ? -amount : amount, type, '', note));
+      jobs.push(adjustPartyBalance('supplier', partyId, type === 'payment' ? -amount : amount, type, vRef.id, note));
     }
     await Promise.all(jobs);
     logAction('treasury', type === 'receipt' ? 'سند قبض' : 'سند صرف', (partyName||'') + ' - ' + fmt(amount) + ' ج.م');
@@ -6543,7 +6589,7 @@ function renderVouchersTable(snap){
     const d = doc.data();
     const dt = d.date && d.date.toDate ? d.date.toDate() : new Date();
     const accName = d.accountType === 'treasury' ? (allTreasuries.find(t=>t.id===d.accountId)?.name) : (allBanks.find(b=>b.id===d.accountId)?.name);
-    rows.push(`<tr>
+    rows.push(`<tr id="row-voucher-${doc.id}">
       <td>${d.type === 'receipt' ? '<span class="badge ok">قبض</span>' : '<span class="badge warn">صرف</span>'}</td>
       <td>${dt.toLocaleDateString('ar-EG-u-nu-latn')}</td>
       <td>${escapeHtml(d.partyName || '—')}</td>
@@ -7009,7 +7055,7 @@ function renderSalesInvoicesTable(){
   tbody.innerHTML = allSalesInvoices.map(inv => {
     const dt = inv.date && inv.date.toDate ? inv.date.toDate() : new Date();
     const statusMap = { confirmed:'<span class="badge ok">مؤكدة</span>', returned:'<span class="badge warn">مرتجعة بالكامل</span>', partially_returned:'<span class="badge warn">مرتجعة جزئيًا</span>' };
-    return `<tr>
+    return `<tr id="row-sale-${inv.id}">
       <td><b>#${inv.number}</b></td>
       <td>${dt.toLocaleDateString('ar-EG-u-nu-latn')}</td>
       <td>${escapeHtml(inv.customerName)}</td>
@@ -8482,7 +8528,7 @@ function renderPurchaseInvoicesTable(){
   tbody.innerHTML = rows.map(inv => {
     const dt = inv.date && inv.date.toDate ? inv.date.toDate() : new Date();
     const statusMap = { confirmed:'<span class="badge ok">مؤكدة</span>', returned:'<span class="badge warn">مرتجعة بالكامل</span>', partially_returned:'<span class="badge warn">مرتجعة جزئيًا</span>' };
-    return `<tr>
+    return `<tr id="row-purchase-${inv.id}">
       <td><b>#${inv.number}</b></td>
       <td>${dt.toLocaleDateString('ar-EG-u-nu-latn')}</td>
       <td>${escapeHtml(inv.supplierName)}</td>
@@ -8876,7 +8922,7 @@ function renderChecksTable(){
     if(currentUser && currentUser.role === 'admin'){
       actions += `<span class="btn-icon danger" title="حذف الشيك" onclick="requestDeleteCheck('${c.id}')">🗑</span>`;
     }
-    return `<tr>
+    return `<tr id="row-check-${c.id}">
       <td>${c.type === 'incoming' ? '<span class="badge ok">وارد</span>' : '<span class="badge warn">صادر</span>'}</td>
       <td>${escapeHtml(c.checkNumber || '—')}</td>
       <td>${escapeHtml(c.partyName || '—')}</td>
