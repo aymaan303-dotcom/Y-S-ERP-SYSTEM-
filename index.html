@@ -3910,9 +3910,10 @@ function fillItemFilterWarehouseSelect(){
   const el = document.getElementById('itemFilterWarehouse');
   if(!el) return;
   const cur = el.value;
-  const allowed = getAllowedWarehouses();
-  el.innerHTML = '<option value="">كل المخازن</option>' + allowed.map(w => `<option value="${w.id}">${escapeHtml(w.name)}</option>`).join('');
-  if(cur && allowed.some(w => w.id === cur)) el.value = cur;
+  // صفحة الأصناف بتعرض البضاعة الموجودة في كل المخازن لكل المستخدمين (مش مقصورة على فرع الموظف)،
+  // عشان موظف المبيعات في أي فرع يقدر يشوف الكميات المتاحة في كل الفروع، حتى لو مش هيبيع منها إلا فرعه فقط.
+  el.innerHTML = '<option value="">كل المخازن</option>' + allWarehouses.map(w => `<option value="${w.id}">${escapeHtml(w.name)}</option>`).join('');
+  if(cur && allWarehouses.some(w => w.id === cur)) el.value = cur;
 }
 
 let warehousesListenerStarted = false;
@@ -4054,14 +4055,13 @@ function setItemCategoryFilter(cat){
   renderItemsTable();
 }
 
-/* بيرجع تفاصيل توزيع مخزون صنف معين على كل المخازن المسموح للمستخدم يشوفها (قطع/كجم بالوحدة الأساسية للصنف) */
+/* بيرجع تفاصيل توزيع مخزون صنف معين على كل المخازن (كل الفروع)، عشان أي مستخدم -بما فيهم موظف
+   المبيعات في أي فرع- يقدر يشوف البضاعة الموجودة في كل المخازن مش مخزنه فقط (قطع/كجم بالوحدة الأساسية للصنف) */
 function itemWarehouseBreakdown(itemId){
-  const allowedIds = new Set(getAllowedWarehouses().map(w => w.id));
   const parts = [];
   Object.keys(stockMap).forEach(k => {
     if(!k.startsWith(itemId + '_')) return;
     const whId = k.slice(itemId.length + 1);
-    if(!allowedIds.has(whId)) return;
     const qty = stockMap[k] || 0;
     if(qty <= 0) return;
     const wh = allWarehouses.find(w => w.id === whId);
