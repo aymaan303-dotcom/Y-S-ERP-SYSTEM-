@@ -4599,7 +4599,7 @@ async function computeWarehouseProfits(){
     const snap = await db.collection('salesInvoices').where('date','>=', yearStart).get();
 
     const result = {};
-    allWarehouses.forEach(w => { result[w.id] = { monthProfit: 0, yearProfit: 0 }; });
+    allWarehouses.forEach(w => { result[w.id] = { monthProfit: 0, yearProfit: 0, monthRows: [], yearRows: [] }; });
 
     snap.forEach(doc => {
       const inv = doc.data();
@@ -4611,9 +4611,19 @@ async function computeWarehouseProfits(){
       const revenue = (inv.subtotal || 0) - (inv.discount || 0);
       const cogs = (inv.items || []).reduce((s, it) => s + computeLineCost(it.itemId, it), 0);
       const profit = revenue - cogs;
+      const row = { id: doc.id, number: inv.number, date: dt, customerName: inv.customerName || 'عميل نقدي', revenue, cogs, profit };
 
       result[whId].yearProfit += profit;
-      if(dt >= monthStart) result[whId].monthProfit += profit;
+      result[whId].yearRows.push(row);
+      if(dt >= monthStart){
+        result[whId].monthProfit += profit;
+        result[whId].monthRows.push(row);
+      }
+    });
+
+    Object.values(result).forEach(r => {
+      r.monthRows.sort((a,b) => b.date - a.date);
+      r.yearRows.sort((a,b) => b.date - a.date);
     });
 
     warehouseProfitCache = result;
@@ -4645,8 +4655,8 @@ function renderWarehousesTable(){
         invValue += costPerBase * qty;
       });
       const p = warehouseProfitCache[w.id];
-      const monthProfitHtml = p ? `<b style="color:${p.monthProfit >= 0 ? 'var(--green)' : 'var(--red)'};">${fmt(p.monthProfit)} ج</b>` : '<span style="color:var(--muted);">...</span>';
-      const yearProfitHtml = p ? `<b style="color:${p.yearProfit >= 0 ? 'var(--green)' : 'var(--red)'};">${fmt(p.yearProfit)} ج</b>` : '<span style="color:var(--muted);">...</span>';
+      const monthProfitHtml = p ? `<b style="color:${p.monthProfit >= 0 ? 'var(--green)' : 'var(--red)'}; cursor:pointer; text-decoration:underline dotted;" title="اعرض تفاصيل فواتير الشهر" onclick="openWarehouseProfitDetails('${w.id}','month')">${fmt(p.monthProfit)} ج</b>` : '<span style="color:var(--muted);">...</span>';
+      const yearProfitHtml = p ? `<b style="color:${p.yearProfit >= 0 ? 'var(--green)' : 'var(--red)'}; cursor:pointer; text-decoration:underline dotted;" title="اعرض تفاصيل فواتير السنة" onclick="openWarehouseProfitDetails('${w.id}','year')">${fmt(p.yearProfit)} ج</b>` : '<span style="color:var(--muted);">...</span>';
       adminCols = `
         <td class="admin-only-col">${fmt(invValue)} ج</td>
         <td class="admin-only-col">${monthProfitHtml}</td>
@@ -4695,6 +4705,40 @@ function openWarehouseDetails(warehouseId){
         <thead><tr><th>الصنف</th><th>التصنيف</th><th>الكمية</th><th>القيمة التقديرية</th></tr></thead>
         <tbody>
           ${rows.map(r => `<tr><td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.category)}</td><td>${fmt(r.qty)} ${r.unitLabel}</td><td>${fmt(r.value)} ج</td></tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+  document.getElementById('statementModalOverlay').classList.add('open');
+}
+
+/* بيعرض تفاصيل الفواتير اللي اتحسب على أساسها ربح المخزن (شهري أو سنوي) — كل فاتورة وإيرادها
+   وتكلفة البضاعة المباعة فيها وصافي ربحها، عشان يبان الرقم الإجمالي جاي منين بالظبط */
+function openWarehouseProfitDetails(warehouseId, period){
+  const wh = allWarehouses.find(w => w.id === warehouseId);
+  const p = warehouseProfitCache[warehouseId];
+  const periodLabel = period === 'month' ? 'الشهر الحالي' : 'السنة الحالية';
+  document.getElementById('statementTitle').textContent = `تفاصيل ربح ${periodLabel} — ${wh ? wh.name : ''}`;
+  const body = document.getElementById('statementBody');
+
+  const rows = p ? (period === 'month' ? p.monthRows : p.yearRows) : [];
+  const totalProfit = p ? (period === 'month' ? p.monthProfit : p.yearProfit) : 0;
+
+  if(!rows.length){
+    body.innerHTML = '<div class="empty-state">لا توجد فواتير بيع مسجلة على هذا المخزن في ' + periodLabel + '</div>';
+  }else{
+    body.innerHTML = `
+      <div class="party-balance" style="font-size:14px; margin-bottom:10px;">عدد الفواتير: <b>${rows.length}</b> — صافي الربح الإجمالي: <b style="color:${totalProfit >= 0 ? 'var(--green)' : 'var(--red)'};">${fmt(totalProfit)} ج</b></div>
+      <table class="data-table" style="font-size:12.5px;">
+        <thead><tr><th>#الفاتورة</th><th>التاريخ</th><th>العميل</th><th>الإيراد</th><th>تكلفة البضاعة</th><th>صافي الربح</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr>
+            <td>#${escapeHtml(String(r.number || ''))}</td>
+            <td>${r.date.toLocaleDateString('ar-EG-u-nu-latn')}</td>
+            <td>${escapeHtml(r.customerName)}</td>
+            <td>${fmt(r.revenue)} ج</td>
+            <td>${fmt(r.cogs)} ج</td>
+            <td style="color:${r.profit >= 0 ? 'var(--green)' : 'var(--red)'};">${fmt(r.profit)} ج</td>
+          </tr>`).join('')}
         </tbody>
       </table>`;
   }
