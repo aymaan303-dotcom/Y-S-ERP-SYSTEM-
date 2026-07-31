@@ -747,6 +747,7 @@
             <div class="tab-btn" data-settab="audit" onclick="switchSetTab('audit')">سجل العمليات</div>
             <div class="tab-btn" data-settab="trash" onclick="switchSetTab('trash')">🗑 سلة المهملات</div>
             <div class="tab-btn" data-settab="backup" onclick="switchSetTab('backup')">النسخ الاحتياطي</div>
+            <div class="tab-btn" data-settab="newperiod" onclick="switchSetTab('newperiod')" style="color:var(--red);">🗓️ بداية فترة جديدة</div>
           </div>
 
           <div id="settab-company">
@@ -853,6 +854,43 @@
               </p>
               <button class="btn btn-primary" style="width:auto;" onclick="scanLedgerCleanup()">🔍 فحص الحركات الملغاة القديمة</button>
               <div id="ledgerCleanupResult" style="font-size:13px; color:var(--muted); margin-top:12px;"></div>
+            </div>
+          </div>
+
+          <div id="settab-newperiod" style="display:none;">
+            <div class="panel" style="margin-bottom:16px; border:1px solid var(--red);">
+              <div class="panel-head"><h3 style="color:var(--red);">⚠️ بداية فترة جديدة (تصفير شامل)</h3></div>
+              <p style="font-size:13px; color:var(--muted); margin-bottom:10px;">
+                هذه الأداة مخصصة لبداية شهر/فترة محاسبية جديدة تمامًا من الصفر. عند التنفيذ سيتم:
+              </p>
+              <p style="font-size:13px; color:var(--red); margin-bottom:4px; font-weight:600;">🗑️ حذف نهائي لكل حركات:</p>
+              <p style="font-size:12.5px; color:var(--muted); margin-bottom:10px;">
+                فواتير ومرتجعات البيع والشراء، عروض الأسعار وأوامر البيع والشراء، القيود اليومية وكشوف الحسابات (ledger)،
+                حركات الأصناف والمخازن، أوامر ومخلفات التصنيع، السندات والشيكات، سلف الموظفين، دورات الرواتب،
+                طلبات الموافقات، وسلة المهملات.
+              </p>
+              <p style="font-size:13px; color:var(--red); margin-bottom:4px; font-weight:600;">🔄 تصفير كامل (بدون حذف السجل نفسه) لـ:</p>
+              <p style="font-size:12.5px; color:var(--muted); margin-bottom:14px;">
+                رصيد كل الأصناف (الكمية ومتوسط التكلفة)، رصيد كل العملاء والموردين، ورصيد كل خزائن الشركة والحسابات البنكية.
+              </p>
+              <p style="font-size:12.5px; color:var(--muted); margin-bottom:14px;">
+                لن يتم حذف: الأصناف والمخازن والعملاء والموردين والخزائن والبنوك أنفسهم (تبقى موجودة برصيد صفر)، ولا المستخدمين، ولا سجل العمليات (Audit Log)، ولا بيانات الحضور.
+              </p>
+              <p style="font-size:13px; color:var(--red); margin-bottom:14px; font-weight:600;">
+                ⚠️ هذا الإجراء نهائي ولا يمكن التراجع عنه إلا بالاسترجاع من نسخة احتياطية. لا تنفّذه إلا بعد التأكد التام.
+              </p>
+
+              <div style="background:rgba(239,68,68,.08); border-radius:10px; padding:14px; margin-bottom:14px;">
+                <p style="font-size:13px; margin-bottom:10px;"><b>الخطوة 1:</b> نزّل نسخة احتياطية كاملة الآن (إجباري قبل المتابعة)</p>
+                <button class="btn btn-primary" style="width:auto;" onclick="newPeriodDownloadBackup()">⬇️ تنزيل نسخة احتياطية الآن</button>
+                <span id="newPeriodBackupStatus" style="font-size:12.5px; color:var(--green); margin-right:10px;"></span>
+              </div>
+
+              <div style="background:rgba(239,68,68,.08); border-radius:10px; padding:14px;">
+                <p style="font-size:13px; margin-bottom:10px;"><b>الخطوة 2:</b> تنفيذ بداية الفترة الجديدة (تصفير شامل)</p>
+                <button class="btn btn-primary" id="newPeriodExecBtn" style="width:auto; background:var(--red); opacity:.5; cursor:not-allowed;" disabled onclick="runNewPeriodReset()">🚨 تنفيذ بداية فترة جديدة الآن</button>
+              </div>
+              <div id="newPeriodProgress" style="font-size:13px; color:var(--muted); margin-top:12px;"></div>
             </div>
           </div>
         </div>
@@ -3868,10 +3906,11 @@ function renderUsersTable(){
 
 function switchSetTab(tab){
   document.querySelectorAll('.tab-btn[data-settab]').forEach(el => el.classList.toggle('active', el.dataset.settab === tab));
-  ['company','users','audit','trash','backup'].forEach(t => document.getElementById('settab-' + t).style.display = t === tab ? 'block' : 'none');
+  ['company','users','audit','trash','backup','newperiod'].forEach(t => document.getElementById('settab-' + t).style.display = t === tab ? 'block' : 'none');
   if(tab === 'audit') ensureAuditLogLoaded();
   if(tab === 'trash') ensureTrashLoaded();
   if(tab === 'backup') loadLastAutoBackupLabel();
+  if(tab === 'newperiod') resetNewPeriodUi();
 }
 
 async function loadLastAutoBackupLabel(){
@@ -11537,6 +11576,133 @@ async function confirmRestore(){
   document.getElementById('restoreFileInput').value = '';
   document.getElementById('restoreSummary').textContent = '';
   document.getElementById('restoreConfirmBtn').style.display = 'none';
+}
+
+/* =========================================================
+   NEW PERIOD RESET MODULE ("بداية فترة جديدة")
+   Admin-only, permanent tool: wipes every transactional collection
+   and zeroes out every running balance, keeping master data
+   (items/warehouses/customers/suppliers/treasuries/banks/users) intact.
+   ========================================================= */
+let newPeriodBackupConfirmed = false;
+
+function resetNewPeriodUi(){
+  newPeriodBackupConfirmed = false;
+  const status = document.getElementById('newPeriodBackupStatus');
+  const btn = document.getElementById('newPeriodExecBtn');
+  const progress = document.getElementById('newPeriodProgress');
+  if(status) status.textContent = '';
+  if(progress) progress.textContent = '';
+  if(btn){ btn.disabled = true; btn.style.opacity = '.5'; btn.style.cursor = 'not-allowed'; }
+}
+
+async function newPeriodDownloadBackup(){
+  if(!isAdminUser()){ showToast('هذه الميزة لمدير النظام فقط'); return; }
+  await downloadBackup(false);
+  newPeriodBackupConfirmed = true;
+  const status = document.getElementById('newPeriodBackupStatus');
+  const btn = document.getElementById('newPeriodExecBtn');
+  if(status) status.textContent = '✅ تم تنزيل النسخة الاحتياطية، يمكنك الآن المتابعة للخطوة 2';
+  if(btn){ btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
+}
+
+// Collections wiped completely (every document deleted)
+const NEW_PERIOD_DELETE_COLLECTIONS = [
+  'salesInvoices','salesReturns','salesQuotes','salesOrders',
+  'purchaseInvoices','purchaseReturns','purchaseOrders',
+  'journalEntries','ledger','itemMovements',
+  'manufacturingOrders','pendingManufacturing','mfgRemnants','mfgRemnantMovements',
+  'vouchers','checks','advances','payrollRuns','approvalRequests','trash','stock',
+];
+
+async function deleteAllDocsInCollection(collName){
+  const snap = await db.collection(collName).get();
+  let batch = db.batch();
+  let opCount = 0;
+  let total = 0;
+  for(const docSnap of snap.docs){
+    batch.delete(docSnap.ref);
+    opCount++; total++;
+    if(opCount >= 450){
+      await batch.commit();
+      batch = db.batch();
+      opCount = 0;
+    }
+  }
+  if(opCount > 0) await batch.commit();
+  return total;
+}
+
+async function zeroOutCollection(collName, fields){
+  const snap = await db.collection(collName).get();
+  let batch = db.batch();
+  let opCount = 0;
+  let total = 0;
+  for(const docSnap of snap.docs){
+    batch.update(docSnap.ref, fields);
+    opCount++; total++;
+    if(opCount >= 450){
+      await batch.commit();
+      batch = db.batch();
+      opCount = 0;
+    }
+  }
+  if(opCount > 0) await batch.commit();
+  return total;
+}
+
+async function runNewPeriodReset(){
+  if(!isAdminUser()){ showToast('هذه الميزة لمدير النظام فقط'); return; }
+  if(!newPeriodBackupConfirmed){ showToast('لازم تنزّل نسخة احتياطية أولاً (الخطوة 1)'); return; }
+
+  const sure = confirm('هل أنت متأكد تمامًا؟ هيتم مسح كل الفواتير والحركات والقيود نهائيًا، وتصفير رصيد كل الأصناف والعملاء والموردين والخزائن والبنوك. لا يمكن التراجع عن هذا إلا بالاسترجاع من نسخة احتياطية.');
+  if(!sure) return;
+
+  const typed = prompt('اكتب "بداية فترة جديدة" بالعربي بالظبط للتأكيد النهائي:');
+  if(typed !== 'بداية فترة جديدة'){ showToast('تم إلغاء العملية'); return; }
+
+  const btn = document.getElementById('newPeriodExecBtn');
+  const progress = document.getElementById('newPeriodProgress');
+  if(btn){ btn.disabled = true; btn.style.opacity = '.5'; btn.style.cursor = 'not-allowed'; }
+  showToast('جاري تنفيذ بداية الفترة الجديدة... لا تغلق الصفحة');
+
+  let deletedTotal = 0;
+  const report = [];
+
+  try{
+    for(const coll of NEW_PERIOD_DELETE_COLLECTIONS){
+      if(progress) progress.textContent = `جاري مسح: ${coll} ...`;
+      const n = await deleteAllDocsInCollection(coll);
+      deletedTotal += n;
+      report.push(`${coll}: ${n}`);
+    }
+
+    if(progress) progress.textContent = 'جاري تصفير أرصدة الأصناف...';
+    const itemsZeroed = await zeroOutCollection('items', { currentStock: 0, avgCost: 0 });
+
+    if(progress) progress.textContent = 'جاري تصفير أرصدة العملاء...';
+    const customersZeroed = await zeroOutCollection('customers', { balance: 0 });
+
+    if(progress) progress.textContent = 'جاري تصفير أرصدة الموردين...';
+    const suppliersZeroed = await zeroOutCollection('suppliers', { balance: 0 });
+
+    if(progress) progress.textContent = 'جاري تصفير أرصدة الخزائن...';
+    const treasuriesZeroed = await zeroOutCollection('treasuries', { balance: 0 });
+
+    if(progress) progress.textContent = 'جاري تصفير أرصدة البنوك...';
+    const banksZeroed = await zeroOutCollection('bankAccounts', { balance: 0 });
+
+    await logAction('settings', 'بداية فترة جديدة (تصفير شامل)',
+      `تم حذف ${deletedTotal} مستند حركة، وتصفير ${itemsZeroed} صنف، ${customersZeroed} عميل، ${suppliersZeroed} مورد، ${treasuriesZeroed} خزينة، ${banksZeroed} حساب بنكي`);
+
+    if(progress) progress.textContent = `✅ تمت بداية الفترة الجديدة بنجاح. تم حذف ${deletedTotal} مستند حركة وتصفير كل الأرصدة.`;
+    showToast('تمت بداية الفترة الجديدة بنجاح، جاري إعادة تحميل الصفحة...');
+    setTimeout(() => location.reload(), 2000);
+  }catch(e){
+    console.error(e);
+    if(progress) progress.textContent = '❌ حدث خطأ أثناء التنفيذ: ' + e.message + ' — راجع البيانات واسترجع النسخة الاحتياطية لو لزم الأمر.';
+    showToast('حدث خطأ أثناء التنفيذ، راجع التفاصيل بالأسفل');
+  }
 }
 </script>
 </body>
