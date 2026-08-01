@@ -742,6 +742,27 @@
             </div>
           </div>
 
+          <div class="panel" style="margin-bottom:20px;">
+            <div class="panel-head">
+              <h3>أداء كل مخزن على حدة</h3>
+              <span class="hint">رصيد الخزينة، مبيعات ومشتريات اليوم، وصافي الربح الشهري — لكل مخزن لوحده</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr>
+                  <th>المخزن</th>
+                  <th>رصيد الخزينة</th>
+                  <th>مبيعات اليوم</th>
+                  <th>مشتريات اليوم</th>
+                  <th class="admin-only-col" style="display:none;">صافي الربح (الشهر)</th>
+                </tr></thead>
+                <tbody id="dashWarehouseTableBody">
+                  <tr><td colspan="5" style="text-align:center; color:var(--muted);">جارِ التحميل...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="panel-grid">
             <div class="panel">
               <div class="panel-head">
@@ -2634,6 +2655,10 @@ document.addEventListener('click', (e) => {
 
 let currentUser = null;
 let unsubscribers = [];
+// خرائط بيانات الداشبورد لكل مخزن على حدة (بدل الأرقام المجمّعة لكل المخازن)
+let dashWhTreasury = {};      // { [warehouseId]: رصيد الخزينة, __shared__: رصيد الخزائن غير المرتبطة بمخزن }
+let dashWhSalesToday = {};    // { [warehouseId]: مبيعات اليوم }
+let dashWhPurchasesToday = {};// { [warehouseId]: مشتريات اليوم }
 
 /* ---------- Auth ---------- */
 /* ملاحظة أمان: تم إلغاء إمكانية "إنشاء حساب مدير جديد" من شاشة الدخول العامة،
@@ -2886,53 +2911,69 @@ function startDashboardListeners(){
   const isAdmin = currentUser && currentUser.role === 'admin';
   const scopeWarehouseId = (!isAdmin && currentUser && currentUser.warehouseId) ? currentUser.warehouseId : null;
   ensurePartiesLoaded();
+  ensureWarehousesLoaded();
+  if(isAdmin) computeWarehouseProfits();
 
-  // Sales today + weekly chart (مقصور على فرع الموظف إن وُجد)
+  // Sales today + weekly chart (مقصور على فرع الموظف إن وُجد) — وبيتحسب كمان لكل مخزن على حدة
   unsubscribers.push(
     db.collection('salesInvoices').onSnapshot(snap => {
       let todayTotal = 0;
       const byDay = {};
       const today = startOfToday();
+      dashWhSalesToday = {};
       snap.forEach(doc => {
         const d = doc.data();
         if(scopeWarehouseId && d.warehouseId !== scopeWarehouseId) return;
         const dt = d.date && d.date.toDate ? d.date.toDate() : new Date(d.date || Date.now());
         const key = dt.toISOString().slice(0,10);
         byDay[key] = (byDay[key] || 0) + (d.total || 0);
-        if(dt >= today) todayTotal += (d.total || 0);
+        if(dt >= today){
+          todayTotal += (d.total || 0);
+          if(d.warehouseId) dashWhSalesToday[d.warehouseId] = (dashWhSalesToday[d.warehouseId] || 0) + (d.total || 0);
+        }
       });
       document.getElementById('kpiSalesToday').textContent = fmt(todayTotal);
       renderSalesChart(byDay);
+      renderDashWarehouseTable();
     }, () => { document.getElementById('kpiSalesToday').textContent = fmt(0); renderSalesChart({}); })
   );
 
-  // Purchases today (مقصور على فرع الموظف إن وُجد)
+  // Purchases today (مقصور على فرع الموظف إن وُجد) — وبيتحسب كمان لكل مخزن على حدة
   unsubscribers.push(
     db.collection('purchaseInvoices').onSnapshot(snap => {
       let todayTotal = 0;
       const today = startOfToday();
+      dashWhPurchasesToday = {};
       snap.forEach(doc => {
         const d = doc.data();
         if(scopeWarehouseId && d.warehouseId !== scopeWarehouseId) return;
         const dt = d.date && d.date.toDate ? d.date.toDate() : new Date(d.date || Date.now());
-        if(dt >= today) todayTotal += (d.total || 0);
+        if(dt >= today){
+          todayTotal += (d.total || 0);
+          if(d.warehouseId) dashWhPurchasesToday[d.warehouseId] = (dashWhPurchasesToday[d.warehouseId] || 0) + (d.total || 0);
+        }
       });
       document.getElementById('kpiPurchasesToday').textContent = fmt(todayTotal);
+      renderDashWarehouseTable();
     }, () => document.getElementById('kpiPurchasesToday').textContent = fmt(0))
   );
 
-  // Treasuries (خزائن الفرع + الخزائن المشتركة غير المرتبطة بفرع)
+  // Treasuries (خزائن الفرع + الخزائن المشتركة غير المرتبطة بفرع) — وبيتحسب كمان رصيد كل خزينة على حدة
   unsubscribers.push(
     db.collection('treasuries').onSnapshot(snap => {
       let total = 0, count = 0;
+      dashWhTreasury = {};
       snap.forEach(doc => {
         const d = doc.data();
         if(scopeWarehouseId && d.warehouseId && d.warehouseId !== scopeWarehouseId) return;
         total += (d.balance || 0); count++;
+        const key = d.warehouseId || '__shared__';
+        dashWhTreasury[key] = (dashWhTreasury[key] || 0) + (d.balance || 0);
       });
       document.getElementById('kpiTreasury').textContent = fmt(total);
       document.getElementById('kpiTreasuryCount').textContent = count + ' خزينة';
       renderTreasuryChart();
+      renderDashWarehouseTable();
     }, () => document.getElementById('kpiTreasury').textContent = fmt(0))
   );
 
@@ -4050,6 +4091,7 @@ function ensureWarehousesLoaded(){
     fillPurchaseInvoiceWarehouseFilter();
     fillMfgStockWarehouseFilter();
     if(document.getElementById('usersList')) renderUsersTable();
+    renderDashWarehouseTable();
   }, err => showLoadError('قائمة المخازن', err));
 }
 
@@ -4773,11 +4815,55 @@ async function computeWarehouseProfits(){
 
     warehouseProfitCache = result;
     renderWarehousesTable();
+    renderDashWarehouseTable();
   }catch(err){
     console.error('خطأ في حساب أرباح المخازن:', err);
   }finally{
     warehouseProfitsLoading = false;
   }
+}
+
+/* بيعرض في الداشبورد جدول أداء كل مخزن على حدة: رصيد خزينته، مبيعات ومشتريات اليوم، وصافي ربحه
+   الشهري (من warehouseProfitCache) — بدل ما تبقى كل الأرقام دي مجمّعة في رقم واحد لكل المخازن */
+function renderDashWarehouseTable(){
+  const tbody = document.getElementById('dashWarehouseTableBody');
+  if(!tbody) return;
+  const isAdminNow = currentUser && currentUser.role === 'admin';
+  const scopeWh = (!isAdminNow && currentUser && currentUser.warehouseId) ? currentUser.warehouseId : null;
+  const list = scopeWh ? allWarehouses.filter(w => w.id === scopeWh) : allWarehouses;
+
+  if(!list.length){
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--muted);">لا توجد مخازن مسجّلة بعد</td></tr>';
+    document.querySelectorAll('.admin-only-col').forEach(el => el.style.display = isAdminNow ? 'table-cell' : 'none');
+    return;
+  }
+
+  let rows = list.map(w => {
+    const treasury = dashWhTreasury[w.id] || 0;
+    const salesT = dashWhSalesToday[w.id] || 0;
+    const purchT = dashWhPurchasesToday[w.id] || 0;
+    const profitInfo = warehouseProfitCache[w.id];
+    const profit = (isAdminNow && profitInfo) ? profitInfo.monthProfit : null;
+    return `<tr>
+        <td>${escapeHtml(w.name)}</td>
+        <td>${fmt(treasury)}</td>
+        <td style="color:var(--green);">${fmt(salesT)}</td>
+        <td style="color:var(--amber);">${fmt(purchT)}</td>
+        <td class="admin-only-col" style="color:${profit == null ? 'var(--muted)' : (profit >= 0 ? 'var(--green)' : 'var(--red)')};">${profit == null ? '—' : fmt(profit)}</td>
+      </tr>`;
+  }).join('');
+
+  // خزائن مشتركة غير مرتبطة بمخزن معيّن (تظهر للأدمن فقط، عشان الرقم يبان من فين)
+  if(!scopeWh && dashWhTreasury['__shared__']){
+    rows += `<tr style="opacity:.75;">
+        <td>خزائن مشتركة (غير مرتبطة بمخزن)</td>
+        <td>${fmt(dashWhTreasury['__shared__'])}</td>
+        <td>—</td><td>—</td><td class="admin-only-col">—</td>
+      </tr>`;
+  }
+
+  tbody.innerHTML = rows;
+  document.querySelectorAll('.admin-only-col').forEach(el => el.style.display = isAdminNow ? 'table-cell' : 'none');
 }
 
 function renderWarehousesTable(){
