@@ -3031,28 +3031,35 @@ function startDashboardListeners(){
     }, () => {})
   );
 
-  // صافي الربح الشهري: مقصور على مدير النظام فقط ومعطّل تماماً للموظف
+  // صافي الربح الشهري: بيتحسب من قيود اليومية الفعلية (إجمالي الإيرادات - إجمالي المصروفات، وفيها
+  // تكلفة البضاعة المباعة الفعلية بمتوسط التكلفة المرجّح لكل صنف) — بالظبط زي منطق "قائمة الدخل"
+  // في قسم المحاسبة. الحساب القديم كان بيطرح إجمالي مشتريات الشهر من المبيعات مباشرة، وده غلط لأن:
+  // 1) مشتريات الشهر ممكن تكون بضاعة لسه في المخزن ولسه اتباعتش (مش تكلفة البضاعة المباعة فعليًا).
+  // 2) المصاريف (عمومية/تصنيع/إلخ) كانت متجاهلة خالص من الحساب.
+  // مقصور على مدير النظام فقط ومعطّل تماماً للموظف
   const profitCard = document.getElementById('kpiProfitCard');
   if(profitCard) profitCard.style.display = isAdmin ? '' : 'none';
   if(isAdmin){
     unsubscribers.push(
-      db.collection('salesInvoices').onSnapshot(snap => {
+      db.collection('accounts').onSnapshot(accSnap => {
+        const revenueIds = [], expenseIds = [];
+        accSnap.forEach(d => {
+          const a = d.data();
+          if(a.type === 'revenue') revenueIds.push(d.id);
+          else if(a.type === 'expense') expenseIds.push(d.id);
+        });
         const som = startOfMonth();
-        let salesMonth = 0;
-        snap.forEach(doc => {
-          const d = doc.data();
-          const dt = d.date && d.date.toDate ? d.date.toDate() : new Date(d.date || Date.now());
-          if(dt >= som) salesMonth += (d.total || 0);
-        });
-        db.collection('purchaseInvoices').get().then(psnap => {
-          let purchasesMonth = 0;
-          psnap.forEach(doc => {
-            const d = doc.data();
-            const dt = d.date && d.date.toDate ? d.date.toDate() : new Date(d.date || Date.now());
-            if(dt >= som) purchasesMonth += (d.total || 0);
+        db.collection('journalEntries').where('date', '>=', som).get().then(jSnap => {
+          let totalRev = 0, totalExp = 0;
+          jSnap.forEach(doc => {
+            (doc.data().lines || []).forEach(l => {
+              if(revenueIds.includes(l.accountId)) totalRev += (l.credit || 0) - (l.debit || 0);
+              else if(expenseIds.includes(l.accountId)) totalExp += (l.debit || 0) - (l.credit || 0);
+            });
           });
-          document.getElementById('kpiProfit').textContent = fmt(salesMonth - purchasesMonth);
-        });
+          const el = document.getElementById('kpiProfit');
+          if(el) el.textContent = fmt(totalRev - totalExp);
+        }).catch(() => {});
       }, () => {})
     );
   }
