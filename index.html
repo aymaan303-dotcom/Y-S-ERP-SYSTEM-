@@ -747,19 +747,8 @@
               <h3>أداء كل مخزن على حدة</h3>
               <span class="hint">رصيد الخزينة، مبيعات ومشتريات اليوم، وصافي الربح الشهري — لكل مخزن لوحده</span>
             </div>
-            <div class="table-wrap">
-              <table class="data-table">
-                <thead><tr>
-                  <th>المخزن</th>
-                  <th>رصيد الخزينة</th>
-                  <th>مبيعات اليوم</th>
-                  <th>مشتريات اليوم</th>
-                  <th class="admin-only-col" style="display:none;">صافي الربح (الشهر)</th>
-                </tr></thead>
-                <tbody id="dashWarehouseTableBody">
-                  <tr><td colspan="5" style="text-align:center; color:var(--muted);">جارِ التحميل...</td></tr>
-                </tbody>
-              </table>
+            <div id="dashWarehouseCards">
+              <div class="empty-state">جارِ التحميل...</div>
             </div>
           </div>
 
@@ -2911,6 +2900,7 @@ function startDashboardListeners(){
   const isAdmin = currentUser && currentUser.role === 'admin';
   const scopeWarehouseId = (!isAdmin && currentUser && currentUser.warehouseId) ? currentUser.warehouseId : null;
   ensurePartiesLoaded();
+  ensureItemsLoaded();
   ensureWarehousesLoaded();
   if(isAdmin) computeWarehouseProfits();
 
@@ -3072,37 +3062,73 @@ function startDashboardListeners(){
     }, () => {})
   );
 
-  // صافي الربح الشهري: بيتحسب من قيود اليومية الفعلية (إجمالي الإيرادات - إجمالي المصروفات، وفيها
-  // تكلفة البضاعة المباعة الفعلية بمتوسط التكلفة المرجّح لكل صنف) — بالظبط زي منطق "قائمة الدخل"
-  // في قسم المحاسبة. الحساب القديم كان بيطرح إجمالي مشتريات الشهر من المبيعات مباشرة، وده غلط لأن:
-  // 1) مشتريات الشهر ممكن تكون بضاعة لسه في المخزن ولسه اتباعتش (مش تكلفة البضاعة المباعة فعليًا).
-  // 2) المصاريف (عمومية/تصنيع/إلخ) كانت متجاهلة خالص من الحساب.
+  // صافي الربح الشهري: بيتحسب من فواتير البيع والشراء مباشرة بنفس منطق (سعر البيع - سعر الشراء) × الكمية
+  // لكل بند — بالظبط زي ما هو مطلوب، مش من قيود اليومية لوحدها. السبب: البنود اليدوية (بيع فوري
+  // مرتبط بفاتورة شراء، زي صفقات الحديد اللي بتتباع فورًا وقت الشراء) مالهاش قيد تكلفة بضاعة تلقائي
+  // في اليومية أصلاً، وتكلفتها لازم تتخصم مباشرة من فاتورة الشراء المرتبطة بيها. بعد كده بيتخصم من
+  // المجموع كل المصاريف المسجّلة في اليومية (عدا حساب تكلفة البضاعة المباعة نفسه، عشان متتحسبش مرتين).
   // مقصور على مدير النظام فقط ومعطّل تماماً للموظف
   const profitCard = document.getElementById('kpiProfitCard');
   if(profitCard) profitCard.style.display = isAdmin ? '' : 'none';
   if(isAdmin){
-    unsubscribers.push(
-      db.collection('accounts').onSnapshot(accSnap => {
-        const revenueIds = [], expenseIds = [];
-        accSnap.forEach(d => {
-          const a = d.data();
-          if(a.type === 'revenue') revenueIds.push(d.id);
-          else if(a.type === 'expense') expenseIds.push(d.id);
+    unsubscribers.push(db.collection('salesInvoices').onSnapshot(() => recomputeMonthlyNetProfit(), () => {}));
+    unsubscribers.push(db.collection('purchaseInvoices').onSnapshot(() => recomputeMonthlyNetProfit(), () => {}));
+    unsubscribers.push(db.collection('journalEntries').onSnapshot(() => recomputeMonthlyNetProfit(), () => {}));
+    unsubscribers.push(db.collection('accounts').onSnapshot(() => recomputeMonthlyNetProfit(), () => {}));
+  }
+}
+
+/* بيحسب صافي الربح الشهري لكل الشركة (كل المخازن مجمّعة) بنفس منطق (سعر البيع - سعر الشراء) × الكمية
+   لكل بند فاتورة بيع، وبيخصم تكلفة البنود اليدوية (البيع الفوري) من فواتير الشراء المرتبطة، ثم يخصم
+   كل المصاريف المسجّلة في اليومية (عدا حساب تكلفة البضاعة المباعة 5000 عشان متتحسبش مرتين). */
+async function recomputeMonthlyNetProfit(){
+  const el = document.getElementById('kpiProfit');
+  if(!el) return;
+  try{
+    const som = startOfMonth();
+    const [salesSnap, purchaseSnap, accSnap] = await Promise.all([
+      db.collection('salesInvoices').where('date', '>=', som).get(),
+      db.collection('purchaseInvoices').where('date', '>=', som).get(),
+      db.collection('accounts').get(),
+    ]);
+
+    const cogsAccDoc = accSnap.docs.find(d => d.data().code === '5000');
+    const cogsAccId = cogsAccDoc ? cogsAccDoc.id : null;
+    const expenseAccIds = accSnap.docs
+      .filter(d => d.data().type === 'expense' && d.id !== cogsAccId)
+      .map(d => d.id);
+
+    // (سعر البيع - سعر الشراء) × الكمية لكل بند بيع — للبنود اليدوية (بيع فوري) الإيراد بيتحسب كامل
+    // هنا، وتكلفتها بتتخصم تحت من فاتورة الشراء المرتبطة (عشان مالهاش قيد تكلفة بضاعة تلقائي)
+    let grossProfit = 0;
+    salesSnap.forEach(doc => {
+      (doc.data().items || []).forEach(it => {
+        if(it.isManual) grossProfit += (it.total || 0);
+        else grossProfit += (it.total || 0) - computeLineCost(it.itemId, it);
+      });
+    });
+
+    // تكلفة البنود اليدوية (بيع فوري) في فواتير الشراء
+    purchaseSnap.forEach(doc => {
+      (doc.data().items || []).forEach(it => {
+        if(it.isManual) grossProfit -= (it.total || 0);
+      });
+    });
+
+    // كل المصاريف المسجّلة في اليومية خلال الشهر (عدا تكلفة البضاعة المباعة، لأنها محسوبة فوق مباشرة)
+    let generalExpenses = 0;
+    if(expenseAccIds.length){
+      const jSnap = await db.collection('journalEntries').where('date', '>=', som).get();
+      jSnap.forEach(doc => {
+        (doc.data().lines || []).forEach(l => {
+          if(expenseAccIds.includes(l.accountId)) generalExpenses += (l.debit || 0) - (l.credit || 0);
         });
-        const som = startOfMonth();
-        db.collection('journalEntries').where('date', '>=', som).get().then(jSnap => {
-          let totalRev = 0, totalExp = 0;
-          jSnap.forEach(doc => {
-            (doc.data().lines || []).forEach(l => {
-              if(revenueIds.includes(l.accountId)) totalRev += (l.credit || 0) - (l.debit || 0);
-              else if(expenseIds.includes(l.accountId)) totalExp += (l.debit || 0) - (l.credit || 0);
-            });
-          });
-          const el = document.getElementById('kpiProfit');
-          if(el) el.textContent = fmt(totalRev - totalExp);
-        }).catch(() => {});
-      }, () => {})
-    );
+      });
+    }
+
+    el.textContent = fmt(grossProfit - generalExpenses);
+  }catch(err){
+    console.error('خطأ في حساب صافي الربح الشهري:', err);
   }
 }
 
@@ -4823,47 +4849,71 @@ async function computeWarehouseProfits(){
   }
 }
 
-/* بيعرض في الداشبورد جدول أداء كل مخزن على حدة: رصيد خزينته، مبيعات ومشتريات اليوم، وصافي ربحه
-   الشهري (من warehouseProfitCache) — بدل ما تبقى كل الأرقام دي مجمّعة في رقم واحد لكل المخازن */
+/* بيعرض في الداشبورد مربعات (بنفس ستايل كروت لوحة التحكم فوق) لأداء كل مخزن على حدة: رصيد
+   خزينته، مبيعات ومشتريات اليوم، وصافي ربحه الشهري (من warehouseProfitCache) — بدل ما تبقى كل
+   الأرقام دي مجمّعة في رقم واحد لكل المخازن */
 function renderDashWarehouseTable(){
-  const tbody = document.getElementById('dashWarehouseTableBody');
-  if(!tbody) return;
+  const box = document.getElementById('dashWarehouseCards');
+  if(!box) return;
   const isAdminNow = currentUser && currentUser.role === 'admin';
   const scopeWh = (!isAdminNow && currentUser && currentUser.warehouseId) ? currentUser.warehouseId : null;
   const list = scopeWh ? allWarehouses.filter(w => w.id === scopeWh) : allWarehouses;
 
   if(!list.length){
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--muted);">لا توجد مخازن مسجّلة بعد</td></tr>';
-    document.querySelectorAll('.admin-only-col').forEach(el => el.style.display = isAdminNow ? 'table-cell' : 'none');
+    box.innerHTML = '<div class="empty-state">لا توجد مخازن مسجّلة بعد</div>';
     return;
   }
 
-  let rows = list.map(w => {
+  function whCardGroup(name, treasury, salesT, purchT, profit){
+    const profitBlock = isAdminNow ? `
+      <div class="kpi-card" style="--accent-color:var(--violet)">
+        <div class="kpi-top"><div class="kpi-icon">📈</div></div>
+        <div class="kpi-label">صافي الربح (الشهر)</div>
+        <div class="kpi-value" style="color:${profit == null ? '' : (profit >= 0 ? 'var(--green)' : 'var(--red)')};">${profit == null ? '—' : fmt(profit)}</div>
+        <div class="kpi-delta">جنيه</div>
+      </div>` : '';
+    return `
+      <div class="wh-perf-group" style="margin-bottom:18px;">
+        <div style="font-weight:800; font-size:14px; margin-bottom:10px; color:var(--text);">🏬 ${escapeHtml(name)}</div>
+        <div class="kpi-grid">
+          <div class="kpi-card" style="--accent-color:var(--accent)">
+            <div class="kpi-top"><div class="kpi-icon">💵</div></div>
+            <div class="kpi-label">رصيد الخزينة</div>
+            <div class="kpi-value">${fmt(treasury)}</div>
+            <div class="kpi-delta">جنيه</div>
+          </div>
+          <div class="kpi-card" style="--accent-color:var(--green)">
+            <div class="kpi-top"><div class="kpi-icon">🧾</div></div>
+            <div class="kpi-label">مبيعات اليوم</div>
+            <div class="kpi-value">${fmt(salesT)}</div>
+            <div class="kpi-delta">جنيه</div>
+          </div>
+          <div class="kpi-card" style="--accent-color:var(--amber)">
+            <div class="kpi-top"><div class="kpi-icon">🛒</div></div>
+            <div class="kpi-label">مشتريات اليوم</div>
+            <div class="kpi-value">${fmt(purchT)}</div>
+            <div class="kpi-delta">جنيه</div>
+          </div>
+          ${profitBlock}
+        </div>
+      </div>`;
+  }
+
+  let html = list.map(w => {
     const treasury = dashWhTreasury[w.id] || 0;
     const salesT = dashWhSalesToday[w.id] || 0;
     const purchT = dashWhPurchasesToday[w.id] || 0;
     const profitInfo = warehouseProfitCache[w.id];
     const profit = (isAdminNow && profitInfo) ? profitInfo.monthProfit : null;
-    return `<tr>
-        <td>${escapeHtml(w.name)}</td>
-        <td>${fmt(treasury)}</td>
-        <td style="color:var(--green);">${fmt(salesT)}</td>
-        <td style="color:var(--amber);">${fmt(purchT)}</td>
-        <td class="admin-only-col" style="color:${profit == null ? 'var(--muted)' : (profit >= 0 ? 'var(--green)' : 'var(--red)')};">${profit == null ? '—' : fmt(profit)}</td>
-      </tr>`;
+    return whCardGroup(w.name, treasury, salesT, purchT, profit);
   }).join('');
 
-  // خزائن مشتركة غير مرتبطة بمخزن معيّن (تظهر للأدمن فقط، عشان الرقم يبان من فين)
+  // خزائن مشتركة غير مرتبطة بمخزن معيّن (تظهر للأدمن فقط، عشان الرصيد ميضيعش)
   if(!scopeWh && dashWhTreasury['__shared__']){
-    rows += `<tr style="opacity:.75;">
-        <td>خزائن مشتركة (غير مرتبطة بمخزن)</td>
-        <td>${fmt(dashWhTreasury['__shared__'])}</td>
-        <td>—</td><td>—</td><td class="admin-only-col">—</td>
-      </tr>`;
+    html += whCardGroup('خزائن مشتركة (غير مرتبطة بمخزن)', dashWhTreasury['__shared__'], 0, 0, null);
   }
 
-  tbody.innerHTML = rows;
-  document.querySelectorAll('.admin-only-col').forEach(el => el.style.display = isAdminNow ? 'table-cell' : 'none');
+  box.innerHTML = html;
 }
 
 function renderWarehousesTable(){
