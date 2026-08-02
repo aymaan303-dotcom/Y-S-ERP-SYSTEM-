@@ -1988,8 +1988,11 @@
           <!-- Manufacturing remnants stock -->
           <div id="mftab-remnants" style="display:none;">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-              <div style="font-size:12px; color:var(--muted);">رصيد بواقي التصنيع الحالي — مستقل عن أصناف ومخازن البرنامج، وبيتحدّث تلقائيًا مع كل أمر تصنيع بيضيف منه أو يسحب منه، وقيمته محسوبة ضمن قيمة المخزون الفعلية.</div>
-              <button class="btn btn-primary btn-sm" style="width:auto; white-space:nowrap;" onclick="openMfgRemnantManualModal()">+ تسجيل يدوي</button>
+              <div style="font-size:12px; color:var(--muted);">رصيد بواقي التصنيع الحالي — مستقل عن أصناف ومخازن البرنامج، وبيتحدّث تلقائيًا مع كل أمر تصنيع بيضيف منه أو يسحب منه، وقيمته محسوبة ضمن قيمة المخزون الفعلية. البنود اللي ليها نفس الاسم بمقاسات مختلفة بتتجمّع تحت بعض — دوس على البند عشان تشوف المقاسات.</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm" style="width:auto; white-space:nowrap; color:var(--red);" onclick="bulkDeleteZeroMfgRemnants()">🗑️ مسح الأرصدة الصفرية</button>
+                <button class="btn btn-primary btn-sm" style="width:auto; white-space:nowrap;" onclick="openMfgRemnantManualModal()">+ تسجيل يدوي</button>
+              </div>
             </div>
             <div class="table-wrap">
               <table class="data-table">
@@ -2142,8 +2145,12 @@
     <div style="font-size:12px; color:var(--muted); margin-bottom:10px;" id="mfgRemManualModalHint">استخدم ده لتسجيل رصيد بواقي موجود بالفعل عندك (رصيد افتتاحي) أو لتصحيح الرصيد الحالي زيادة أو نقصان.</div>
     <div class="field">
       <label>اسم البند *</label>
-      <input type="text" id="mfgRemManualName" list="mfgRemManualNameList" placeholder="مثال: قصاصات حديد 8مم" oninput="onMfgRemManualNameChange()">
+      <input type="text" id="mfgRemManualName" list="mfgRemManualNameList" placeholder="مثال: علب 5×5×3مم" oninput="onMfgRemManualNameChange()">
       <datalist id="mfgRemManualNameList"></datalist>
+    </div>
+    <div class="field">
+      <label>المقاس / الوصف الفرعي (اختياري)</label>
+      <input type="text" id="mfgRemManualVariant" placeholder="مثال: طول 2 متر" oninput="onMfgRemManualNameChange()">
     </div>
     <div class="form-row">
       <div class="field">
@@ -2186,8 +2193,9 @@
       <span class="modal-close" onclick="closeMfgRemnantItemEditModal()">✕</span>
     </div>
     <input type="hidden" id="mfgRemItemEditId">
-    <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">تعديل هنا بيغيّر اسم البند و/أو وزن الوحدة التقريبي فقط، من غير ما يأثر على الرصيد الحالي.</div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">تعديل هنا بيغيّر اسم البند / المقاس و/أو وزن الوحدة التقريبي فقط، من غير ما يأثر على الرصيد الحالي.</div>
     <div class="field"><label>اسم البند *</label><input type="text" id="mfgRemItemEditName"></div>
+    <div class="field"><label>المقاس / الوصف الفرعي (اختياري)</label><input type="text" id="mfgRemItemEditVariant" placeholder="مثال: طول 2 متر"></div>
     <div class="field" id="mfgRemItemEditWeightRow" style="display:none;">
       <label>الوزن التقريبي للوحدة (كجم)</label>
       <input type="number" id="mfgRemItemEditWeight" min="0" step="0.001" placeholder="مثال: 0.25">
@@ -8493,25 +8501,89 @@ function mfgRemnantsTotalValue(){
   return allMfgRemnants.reduce((s, r) => s + (r.qty || 0) * (r.avgCost || 0), 0);
 }
 
+/* بيرسم جدول أرصدة البواقي مجمّعة حسب الاسم — أي بنود ليها نفس الاسم (زي "علب 5×5×3مم") بمقاسات
+   مختلفة (المقاس محفوظ في r.variant زي "طول 2 متر") بتتجمع تحت صف واحد قابل للطي/الفتح، وبالدوس
+   عليه بتظهر/تتخفي كل المقاسات اللي تحته. البند اللي مالوش مقاسات تانية بنفس الاسم بيتعرض عادي. */
 function renderMfgRemnantsTable(){
   const tbody = document.getElementById('mfgRemnantsTableBody');
   if(!tbody) return;
   document.getElementById('mfgRemnantsEmpty').style.display = allMfgRemnants.length ? 'none' : 'block';
-  tbody.innerHTML = allMfgRemnants.map(r => {
-    const dt = r.updatedAt && r.updatedAt.toDate ? r.updatedAt.toDate() : null;
-    const isCount = r.baseUnitType !== 'weight';
-    const approxWeight = isCount && r.weightPerUnit ? (r.qty || 0) * r.weightPerUnit : null;
-    return `<tr>
-      <td>${escapeHtml(r.name)}</td>
-      <td>${r.baseUnitType === 'weight' ? 'وزن (كجم)' : 'عدد (قطعة)'}</td>
-      <td>${fmt(r.qty)}</td>
-      <td>${approxWeight != null ? fmt(approxWeight) + ' كجم' : '—'}</td>
-      <td>${fmt(r.avgCost || 0)}</td>
-      <td>${fmt((r.qty || 0) * (r.avgCost || 0))}</td>
-      <td>${dt ? dt.toLocaleDateString('ar-EG-u-nu-latn') : '—'}</td>
-      <td><span class="row-action-link edit" onclick="openMfgRemnantItemEditModal('${r.id}')">تعديل</span></td>
+
+  const groups = {};
+  allMfgRemnants.forEach(r => { (groups[r.name] = groups[r.name] || []).push(r); });
+  const names = Object.keys(groups).sort((a,b) => a.localeCompare(b, 'ar'));
+
+  let html = '';
+  names.forEach((name, idx) => {
+    const items = groups[name];
+    if(items.length === 1 && !items[0].variant){
+      html += mfgRemnantRowHtml(items[0], false, null);
+      return;
+    }
+    const groupId = 'mfgRemGrp' + idx;
+    const totalQty = items.reduce((s,r) => s + (r.qty || 0), 0);
+    const totalValue = items.reduce((s,r) => s + (r.qty || 0) * (r.avgCost || 0), 0);
+    const baseType = items[0].baseUnitType;
+    const isCount = baseType !== 'weight';
+    const totalWeight = isCount ? items.reduce((s,r) => s + (r.weightPerUnit ? (r.qty || 0) * r.weightPerUnit : 0), 0) : null;
+    html += `<tr class="clickable" onclick="toggleMfgRemnantGroup('${groupId}')" style="cursor:pointer; background:rgba(255,255,255,0.03);">
+      <td><span id="${groupId}_arrow">▶</span> <b>${escapeHtml(name)}</b> <small style="color:var(--muted)">(${items.length} مقاس)</small></td>
+      <td>${baseType === 'weight' ? 'وزن (كجم)' : 'عدد (قطعة)'}</td>
+      <td>${fmt(totalQty)}</td>
+      <td>${totalWeight != null ? fmt(totalWeight) + ' كجم' : '—'}</td>
+      <td>—</td>
+      <td><b>${fmt(totalValue)}</b></td>
+      <td>—</td>
+      <td>—</td>
     </tr>`;
-  }).join('');
+    items.forEach(r => { html += mfgRemnantRowHtml(r, true, groupId); });
+  });
+  tbody.innerHTML = html;
+}
+
+function mfgRemnantRowHtml(r, isChild, groupId){
+  const dt = r.updatedAt && r.updatedAt.toDate ? r.updatedAt.toDate() : null;
+  const isCount = r.baseUnitType !== 'weight';
+  const approxWeight = isCount && r.weightPerUnit ? (r.qty || 0) * r.weightPerUnit : null;
+  const label = isChild
+    ? `<span style="padding-inline-start:22px; color:var(--muted); display:inline-block;">↳ ${escapeHtml(r.variant || 'بدون مقاس')}</span>`
+    : escapeHtml(r.name);
+  return `<tr ${isChild ? `class="mfg-remnant-child" data-group="${groupId}" style="display:none;"` : ''}>
+    <td>${label}</td>
+    <td>${r.baseUnitType === 'weight' ? 'وزن (كجم)' : 'عدد (قطعة)'}</td>
+    <td>${fmt(r.qty)}</td>
+    <td>${approxWeight != null ? fmt(approxWeight) + ' كجم' : '—'}</td>
+    <td>${fmt(r.avgCost || 0)}</td>
+    <td>${fmt((r.qty || 0) * (r.avgCost || 0))}</td>
+    <td>${dt ? dt.toLocaleDateString('ar-EG-u-nu-latn') : '—'}</td>
+    <td><span class="row-action-link edit" onclick="openMfgRemnantItemEditModal('${r.id}')">تعديل</span></td>
+  </tr>`;
+}
+
+function toggleMfgRemnantGroup(groupId){
+  const rows = document.querySelectorAll(`tr.mfg-remnant-child[data-group="${groupId}"]`);
+  if(!rows.length) return;
+  const show = rows[0].style.display === 'none';
+  rows.forEach(r => { r.style.display = show ? '' : 'none'; });
+  const arrow = document.getElementById(groupId + '_arrow');
+  if(arrow) arrow.textContent = show ? '▼' : '▶';
+}
+
+/* حذف كل بنود بواقي التصنيع اللي رصيدها الحالي صفر (بعد التسويات أو استهلاك كل الكمية) دفعة واحدة.
+   إجراء نهائي مقصور على الأدمن، ومش بيمسح سجل الحركات القديمة (بيفضل كسجل تاريخي). */
+async function bulkDeleteZeroMfgRemnants(){
+  if(!isAdminUser()){ showToast('حذف الأرصدة الصفرية يتطلب صلاحية مدير النظام'); return; }
+  const zeroItems = allMfgRemnants.filter(r => Math.abs(r.qty || 0) < 0.0001);
+  if(!zeroItems.length){ showToast('لا توجد أرصدة صفرية حاليًا في بواقي التصنيع'); return; }
+  if(!confirm(`سيتم حذف ${zeroItems.length} بند رصيده صفر من بواقي التصنيع نهائيًا. متابعة؟`)) return;
+  try{
+    const batch = db.batch();
+    zeroItems.forEach(r => batch.delete(db.collection('mfgRemnants').doc(r.id)));
+    await batch.commit();
+    showToast('تم حذف الأرصدة الصفرية');
+  }catch(err){
+    showToast(err.message || 'حصل خطأ أثناء الحذف');
+  }
 }
 
 /* ---------- سجل حركات البواقي (زيادة/خصم) مع إمكانية التعديل والحذف ---------- */
@@ -8552,10 +8624,12 @@ function openMfgRemnantManualModal(){
   ensureMfgRemnantsLoaded();
   ensureMfgRemnantMovementsLoaded();
   document.getElementById('mfgRemManualModalTitle').textContent = 'تسجيل يدوي لبواقي التصنيع';
-  document.getElementById('mfgRemManualModalHint').textContent = 'استخدم ده لتسجيل رصيد بواقي موجود بالفعل عندك (رصيد افتتاحي) أو لتصحيح الرصيد الحالي زيادة أو نقصان.';
+  document.getElementById('mfgRemManualModalHint').textContent = 'استخدم ده لتسجيل رصيد بواقي موجود بالفعل عندك (رصيد افتتاحي) أو لتصحيح الرصيد الحالي زيادة أو نقصان. لو نفس الاسم بمقاس مختلف (زي طول مختلف)، اكتب المقاس في حقل منفصل عشان يتسجل كبند مستقل تحت نفس الاسم.';
   document.getElementById('mfgRemManualEditingMovementId').value = '';
   document.getElementById('mfgRemManualName').disabled = false;
   document.getElementById('mfgRemManualName').value = '';
+  document.getElementById('mfgRemManualVariant').disabled = false;
+  document.getElementById('mfgRemManualVariant').value = '';
   document.getElementById('mfgRemManualUnitType').value = 'weight';
   document.getElementById('mfgRemManualUnitType').disabled = false;
   document.getElementById('mfgRemManualDirection').value = 'in';
@@ -8567,7 +8641,8 @@ function openMfgRemnantManualModal(){
   document.getElementById('mfgRemManualSaveBtn').textContent = 'حفظ';
   onMfgRemManualUnitTypeChange();
   const dl = document.getElementById('mfgRemManualNameList');
-  dl.innerHTML = allMfgRemnants.map(r => `<option value="${escapeHtml(r.name)}"></option>`).join('');
+  const uniqueNames = [...new Set(allMfgRemnants.map(r => r.name))];
+  dl.innerHTML = uniqueNames.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
   document.getElementById('mfgRemnantManualModalOverlay').classList.add('open');
 }
 function closeMfgRemnantManualModal(){ document.getElementById('mfgRemnantManualModalOverlay').classList.remove('open'); }
@@ -8579,13 +8654,20 @@ function onMfgRemManualUnitTypeChange(){
 
 function onMfgRemManualNameChange(){
   const name = document.getElementById('mfgRemManualName').value.trim();
-  const existing = allMfgRemnants.find(r => r.name === name);
+  const variant = document.getElementById('mfgRemManualVariant').value.trim();
+  const sameName = allMfgRemnants.filter(r => r.name === name);
+  const exactMatch = sameName.find(r => (r.variant || '') === variant);
   const note = document.getElementById('mfgRemManualExistingNote');
-  if(existing){
-    document.getElementById('mfgRemManualUnitType').value = existing.baseUnitType || 'weight';
+  if(exactMatch){
+    document.getElementById('mfgRemManualUnitType').value = exactMatch.baseUnitType || 'weight';
     onMfgRemManualUnitTypeChange();
-    if(existing.weightPerUnit) document.getElementById('mfgRemManualWeightPerUnit').value = existing.weightPerUnit;
-    note.textContent = `البند موجود بالفعل — الرصيد الحالي ${fmt(existing.qty || 0)}، وهيتضاف/يتخصم منه.`;
+    if(exactMatch.weightPerUnit) document.getElementById('mfgRemManualWeightPerUnit').value = exactMatch.weightPerUnit;
+    note.textContent = `البند بنفس المقاس موجود بالفعل — الرصيد الحالي ${fmt(exactMatch.qty || 0)}، وهيتضاف/يتخصم منه.`;
+    note.style.display = 'block';
+  }else if(sameName.length){
+    document.getElementById('mfgRemManualUnitType').value = sameName[0].baseUnitType || 'weight';
+    onMfgRemManualUnitTypeChange();
+    note.textContent = `يوجد بالفعل ${sameName.length} مقاس مسجّل لاسم "${name}" — هيتضاف مقاس/بند جديد تحت نفس الاسم.`;
     note.style.display = 'block';
   }else{
     note.style.display = 'none';
@@ -8593,7 +8675,7 @@ function onMfgRemManualNameChange(){
 }
 
 /* فتح نفس المودال في وضع "تعديل حركة" — بيسمح بتغيير الكمية/الاتجاه/التكلفة/السبب لحركة مسجّلة قبل كده
-   من غير ما يسمح بتغيير اسم البند (لأن ده هيغيّر تبعية الحركة لبند تاني) */
+   من غير ما يسمح بتغيير اسم البند أو مقاسه (لأن ده هيغيّر تبعية الحركة لبند تاني) */
 function openMfgRemnantMovementEditModal(movementId){
   const m = allMfgRemnantMovements.find(x => x.id === movementId);
   if(!m) return;
@@ -8603,6 +8685,8 @@ function openMfgRemnantMovementEditModal(movementId){
   document.getElementById('mfgRemManualEditingMovementId').value = movementId;
   document.getElementById('mfgRemManualName').value = m.name || '';
   document.getElementById('mfgRemManualName').disabled = true;
+  document.getElementById('mfgRemManualVariant').value = (r && r.variant) || '';
+  document.getElementById('mfgRemManualVariant').disabled = true;
   document.getElementById('mfgRemManualUnitType').value = (r && r.baseUnitType) || 'weight';
   document.getElementById('mfgRemManualUnitType').disabled = true;
   document.getElementById('mfgRemManualDirection').value = m.qty >= 0 ? 'in' : 'out';
@@ -8619,6 +8703,7 @@ function openMfgRemnantMovementEditModal(movementId){
 async function saveMfgRemnantManual(){
   const editingMovementId = document.getElementById('mfgRemManualEditingMovementId').value;
   const name = document.getElementById('mfgRemManualName').value.trim();
+  const variant = document.getElementById('mfgRemManualVariant').value.trim();
   const baseUnitType = document.getElementById('mfgRemManualUnitType').value;
   const direction = document.getElementById('mfgRemManualDirection').value;
   const qty = parseFloat(document.getElementById('mfgRemManualQty').value);
@@ -8640,11 +8725,11 @@ async function saveMfgRemnantManual(){
       });
       showToast('تم تعديل الحركة بنجاح');
     }else{
-      const existing = allMfgRemnants.find(r => r.name === name);
+      const existing = allMfgRemnants.find(r => r.name === name && (r.variant || '') === variant);
       const ref = existing ? db.collection('mfgRemnants').doc(existing.id) : db.collection('mfgRemnants').doc();
       const deltaQty = direction === 'out' ? -qty : qty;
       await adjustMfgRemnantStock(ref, deltaQty, {
-        name, baseUnitType,
+        name, variant: variant || undefined, baseUnitType,
         cost: cost != null ? cost : undefined,
         weightPerUnit: weightPerUnit != null ? weightPerUnit : undefined,
         reason: reason + ' (تسجيل يدوي)'
@@ -8672,6 +8757,7 @@ async function adjustMfgRemnantStock(remnantRef, deltaQty, meta){
     const payload = { qty: newQty, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
     if(!doc.exists){
       payload.name = meta.name || '';
+      payload.variant = meta.variant || '';
       payload.baseUnitType = meta.baseUnitType || 'weight';
       payload.avgCost = deltaQty > 0 ? (meta.cost || 0) : 0;
       payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
@@ -8768,6 +8854,7 @@ function openMfgRemnantItemEditModal(remnantId){
   if(!r) return;
   document.getElementById('mfgRemItemEditId').value = remnantId;
   document.getElementById('mfgRemItemEditName').value = r.name || '';
+  document.getElementById('mfgRemItemEditVariant').value = r.variant || '';
   document.getElementById('mfgRemItemEditWeightRow').style.display = r.baseUnitType === 'count' ? 'block' : 'none';
   document.getElementById('mfgRemItemEditWeight').value = r.weightPerUnit || '';
   document.getElementById('mfgRemnantItemEditModalOverlay').classList.add('open');
@@ -8777,9 +8864,10 @@ function closeMfgRemnantItemEditModal(){ document.getElementById('mfgRemnantItem
 async function saveMfgRemnantItemEdit(){
   const id = document.getElementById('mfgRemItemEditId').value;
   const name = document.getElementById('mfgRemItemEditName').value.trim();
+  const variant = document.getElementById('mfgRemItemEditVariant').value.trim();
   const weightVal = document.getElementById('mfgRemItemEditWeight').value;
   if(!name){ showToast('اكتب اسم البند'); return; }
-  const payload = { name };
+  const payload = { name, variant };
   if(document.getElementById('mfgRemItemEditWeightRow').style.display !== 'none'){
     payload.weightPerUnit = weightVal !== '' ? parseFloat(weightVal) : 0;
   }
