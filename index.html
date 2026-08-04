@@ -704,37 +704,37 @@
         <!-- ===== DASHBOARD PAGE ===== -->
         <div id="page-dashboard">
           <div class="kpi-grid">
-            <div class="kpi-card" style="--accent-color:var(--green)">
+            <div class="kpi-card" style="--accent-color:var(--green); cursor:pointer;" onclick="showKpiExplain('salesToday')" title="دوس لمعرفة طريقة حساب الرقم">
               <div class="kpi-top"><div class="kpi-icon">🧾</div></div>
               <div class="kpi-label">مبيعات اليوم</div>
               <div class="kpi-value" id="kpiSalesToday">0.00</div>
               <div class="kpi-delta">جنيه — نقدًا وآجل</div>
             </div>
-            <div class="kpi-card" style="--accent-color:var(--amber)">
+            <div class="kpi-card" style="--accent-color:var(--amber); cursor:pointer;" onclick="showKpiExplain('purchasesToday')" title="دوس لمعرفة طريقة حساب الرقم">
               <div class="kpi-top"><div class="kpi-icon">🛒</div></div>
               <div class="kpi-label">مشتريات اليوم</div>
               <div class="kpi-value" id="kpiPurchasesToday">0.00</div>
               <div class="kpi-delta">جنيه</div>
             </div>
-            <div class="kpi-card" style="--accent-color:var(--accent)">
+            <div class="kpi-card" style="--accent-color:var(--accent); cursor:pointer;" onclick="showKpiExplain('treasury')" title="دوس لمعرفة طريقة حساب الرقم">
               <div class="kpi-top"><div class="kpi-icon">💵</div></div>
               <div class="kpi-label">رصيد الخزينة</div>
               <div class="kpi-value" id="kpiTreasury">0.00</div>
               <div class="kpi-delta" id="kpiTreasuryCount">0 خزينة</div>
             </div>
-            <div class="kpi-card" style="--accent-color:var(--teal)">
+            <div class="kpi-card" style="--accent-color:var(--teal); cursor:pointer;" onclick="showKpiExplain('banks')" title="دوس لمعرفة طريقة حساب الرقم">
               <div class="kpi-top"><div class="kpi-icon">🏦</div></div>
               <div class="kpi-label">أرصدة البنوك</div>
               <div class="kpi-value" id="kpiBanks">0.00</div>
               <div class="kpi-delta" id="kpiBanksCount">0 حساب بنكي</div>
             </div>
-            <div class="kpi-card" id="kpiProfitCard" style="--accent-color:var(--violet)">
+            <div class="kpi-card" id="kpiProfitCard" style="--accent-color:var(--violet); cursor:pointer;" onclick="showKpiExplain('profit')" title="دوس لمعرفة طريقة حساب الرقم">
               <div class="kpi-top"><div class="kpi-icon">📈</div></div>
               <div class="kpi-label">صافي الربح (الشهر)</div>
               <div class="kpi-value" id="kpiProfit">0.00</div>
               <div class="kpi-delta">جنيه</div>
             </div>
-            <div class="kpi-card" style="--accent-color:var(--red)">
+            <div class="kpi-card" style="--accent-color:var(--red); cursor:pointer;" onclick="showKpiExplain('alerts')" title="دوس لمعرفة طريقة حساب الرقم">
               <div class="kpi-top"><div class="kpi-icon">⚠️</div></div>
               <div class="kpi-label">تنبيهات نشطة</div>
               <div class="kpi-value" id="kpiAlerts">0</div>
@@ -2207,6 +2207,20 @@
   </div>
 </div>
 
+<!-- ===== KPI EXPLAIN MODAL (توضيح مصدر/طريقة حساب أرقام لوحة التحكم) ===== -->
+<div class="modal-overlay" id="kpiExplainModalOverlay">
+  <div class="modal-box" style="max-width:460px;">
+    <div class="modal-head">
+      <h3 id="kpiExplainTitle">توضيح الرقم</h3>
+      <span class="modal-close" onclick="closeKpiExplainModal()">✕</span>
+    </div>
+    <div id="kpiExplainBody" style="font-size:13.5px; line-height:1.9; color:var(--text);"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="closeKpiExplainModal()">تمام</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== PARTY (CUSTOMER/SUPPLIER) MODAL ===== -->
 <div class="modal-overlay" id="partyModalOverlay">
   <div class="modal-box" style="max-width:440px;">
@@ -2982,6 +2996,69 @@ function startOfYear(){
    All collections are created automatically once the later phases write to them.
    The dashboard below listens to them in real time and simply shows zero/empty
    states gracefully if a collection doesn't exist yet. */
+/* ---------- توضيح مصدر/طريقة حساب أرقام كروت لوحة التحكم — بيتفتح لما تدوس على أي كارت ---------- */
+const kpiExplainContent = {
+  salesToday: {
+    title: 'مبيعات اليوم',
+    body: `
+      <p>الرقم ده هو إجمالي كل فواتير البيع (نقدي وآجل) اللي <b>تاريخها النهارده</b>.</p>
+      <p><b>المصدر:</b> مجموعة فواتير البيع <code>salesInvoices</code> — بيتجمع حقل إجمالي كل فاتورة (<code>total</code>) لأي فاتورة تاريخها من بداية اليوم.</p>
+      <p>لو أنت موظف مقيّد بمخزن/فرع معيّن، الرقم بيبقى خاص بفواتير فرعك بس. مدير النظام بيشوف مبيعات كل الفروع مجمّعة مع بعض.</p>
+    `
+  },
+  purchasesToday: {
+    title: 'مشتريات اليوم',
+    body: `
+      <p>الرقم ده هو إجمالي كل فواتير الشراء اللي <b>تاريخها النهارده</b>.</p>
+      <p><b>المصدر:</b> مجموعة فواتير الشراء <code>purchaseInvoices</code> — بيتجمع حقل إجمالي كل فاتورة (<code>total</code>) لأي فاتورة تاريخها من بداية اليوم.</p>
+      <p>نفس منطق مبيعات اليوم: الموظف المقيّد بفرع بيشوف مشتريات فرعه بس، والمدير بيشوف كل الفروع مجمّعة.</p>
+    `
+  },
+  treasury: {
+    title: 'رصيد الخزينة',
+    body: `
+      <p>الرقم ده هو <b>مجموع أرصدة كل الخزائن</b> (نقدية) المسجّلة في البرنامج دلوقتي.</p>
+      <p><b>المصدر:</b> مجموعة <code>treasuries</code> — بيتجمع حقل الرصيد (<code>balance</code>) لكل خزينة، وده رصيد لحظي (مش عن يوم معيّن) بيتحدّث تلقائي مع أي سند قبض/صرف أو حركة تخص الخزينة.</p>
+      <p>الموظف المقيّد بفرع بيشوف خزائن فرعه بس، والمدير بيشوف كل الخزائن (بما فيها الخزائن المشتركة اللي مش مرتبطة بفرع معيّن).</p>
+    `
+  },
+  banks: {
+    title: 'أرصدة البنوك',
+    body: `
+      <p>الرقم ده هو <b>مجموع أرصدة كل الحسابات البنكية</b> المسجّلة في البرنامج دلوقتي.</p>
+      <p><b>المصدر:</b> مجموعة <code>bankAccounts</code> — بيتجمع حقل الرصيد (<code>balance</code>) لكل حساب بنكي، وبيتحدّث تلقائي مع أي إيداع/سحب أو تحويل بين الحسابات.</p>
+      <p>الرقم الإجمالي ده ظاهر لمدير النظام بس، لأسباب خصوصية مالية.</p>
+    `
+  },
+  profit: {
+    title: 'صافي الربح (الشهر)',
+    body: `
+      <p>ده صافي ربح الشركة من بداية الشهر الحالي لحد دلوقتي، وبيتحسب بالخطوات دي:</p>
+      <p>1️⃣ لكل بند في فواتير البيع من أول الشهر: بيتحسب (سعر البيع − تكلفة الصنف) × الكمية. البنود اليدوية (بيع فوري مرتبط مباشرة بفاتورة شراء) بيتحسب لها سعر البيع كامل هنا.</p>
+      <p>2️⃣ بعدين بتتخصم تكلفة البنود اليدوية دي من فواتير الشراء المرتبطة بيها (عشان مالهاش قيد تكلفة بضاعة تلقائي في اليومية).</p>
+      <p>3️⃣ في الآخر بتتخصم كل المصاريف المسجّلة في اليومية <code>journalEntries</code> خلال الشهر (عدا حساب تكلفة البضاعة المباعة، عشان متتحسبش مرتين).</p>
+      <p><b>المصدر:</b> <code>salesInvoices</code> + <code>purchaseInvoices</code> + <code>journalEntries</code> + <code>accounts</code>. الرقم ده ظاهر لمدير النظام بس.</p>
+    `
+  },
+  alerts: {
+    title: 'تنبيهات نشطة',
+    body: `
+      <p>الرقم ده هو عدد التنبيهات اللي محتاجة متابعة دلوقتي، وبيتكوّن من نوعين:</p>
+      <p>1️⃣ <b>نقص مخزون:</b> كل صنف رصيده الحالي وصل للحد الأدنى المسجّل ليه أو أقل — كل صنف بيتحسب كتنبيه منفصل.</p>
+      <p>2️⃣ <b>شيكات مستحقة:</b> لو فيه أي شيكات (واردة أو صادرة) تاريخ استحقاقها خلال الـ7 أيام الجايين، ده بيضاف كتنبيه واحد إضافي.</p>
+      <p><b>المصدر:</b> مجموعة <code>items</code> (مع أرصدة المخزون) ومجموعة <code>checks</code>. دوس على جرس التنبيهات فوق عشان تشوف تفاصيلها.</p>
+    `
+  }
+};
+function showKpiExplain(key){
+  const c = kpiExplainContent[key];
+  if(!c) return;
+  document.getElementById('kpiExplainTitle').textContent = c.title;
+  document.getElementById('kpiExplainBody').innerHTML = c.body;
+  document.getElementById('kpiExplainModalOverlay').classList.add('open');
+}
+function closeKpiExplainModal(){ document.getElementById('kpiExplainModalOverlay').classList.remove('open'); }
+
 function startDashboardListeners(){
   unsubscribers.forEach(u => u());
   unsubscribers = [];
@@ -4958,7 +5035,7 @@ function renderDashWarehouseTable(){
 
   function whCardGroup(name, treasury, salesT, purchT, profit){
     const profitBlock = isAdminNow ? `
-      <div class="kpi-card" style="--accent-color:var(--violet)">
+      <div class="kpi-card" style="--accent-color:var(--violet); cursor:pointer;" onclick="showKpiExplain('profit')" title="دوس لمعرفة طريقة حساب الرقم">
         <div class="kpi-top"><div class="kpi-icon">📈</div></div>
         <div class="kpi-label">صافي الربح (الشهر)</div>
         <div class="kpi-value" style="color:${profit == null ? '' : (profit >= 0 ? 'var(--green)' : 'var(--red)')};">${profit == null ? '—' : fmt(profit)}</div>
@@ -4968,19 +5045,19 @@ function renderDashWarehouseTable(){
       <div class="wh-perf-group" style="margin-bottom:18px;">
         <div style="font-weight:800; font-size:14px; margin-bottom:10px; color:var(--text);">🏬 ${escapeHtml(name)}</div>
         <div class="kpi-grid">
-          <div class="kpi-card" style="--accent-color:var(--accent)">
+          <div class="kpi-card" style="--accent-color:var(--accent); cursor:pointer;" onclick="showKpiExplain('treasury')" title="دوس لمعرفة طريقة حساب الرقم">
             <div class="kpi-top"><div class="kpi-icon">💵</div></div>
             <div class="kpi-label">رصيد الخزينة</div>
             <div class="kpi-value">${fmt(treasury)}</div>
             <div class="kpi-delta">جنيه</div>
           </div>
-          <div class="kpi-card" style="--accent-color:var(--green)">
+          <div class="kpi-card" style="--accent-color:var(--green); cursor:pointer;" onclick="showKpiExplain('salesToday')" title="دوس لمعرفة طريقة حساب الرقم">
             <div class="kpi-top"><div class="kpi-icon">🧾</div></div>
             <div class="kpi-label">مبيعات اليوم</div>
             <div class="kpi-value">${fmt(salesT)}</div>
             <div class="kpi-delta">جنيه</div>
           </div>
-          <div class="kpi-card" style="--accent-color:var(--amber)">
+          <div class="kpi-card" style="--accent-color:var(--amber); cursor:pointer;" onclick="showKpiExplain('purchasesToday')" title="دوس لمعرفة طريقة حساب الرقم">
             <div class="kpi-top"><div class="kpi-icon">🛒</div></div>
             <div class="kpi-label">مشتريات اليوم</div>
             <div class="kpi-value">${fmt(purchT)}</div>
