@@ -1488,6 +1488,7 @@
           <div id="rtab-itemmove" style="display:none;">
             <div class="filter-row">
               <div class="field"><label>الصنف</label><select id="repMoveItem"><option value="">كل الأصناف</option></select></div>
+              <div class="field"><label>رقم الفاتورة</label><input type="text" id="repMoveInvoiceNo" placeholder="مثال: 145" inputmode="numeric"></div>
               <div class="field"><label>من تاريخ</label><input type="date" id="repMoveFrom"></div>
               <div class="field"><label>إلى تاريخ</label><input type="date" id="repMoveTo"></div>
               <button class="btn btn-primary btn-sm" style="width:auto;" onclick="renderItemMovementReport()">عرض</button>
@@ -1523,6 +1524,12 @@
 
           <!-- Invoices list -->
           <div id="stab-invoices">
+            <div class="toolbar">
+              <input type="text" class="grow" id="salesInvoiceSearch" placeholder="ابحث برقم الفاتورة أو اسم العميل..." oninput="renderSalesInvoicesTable()">
+              <select id="salesInvoiceWarehouseFilter" onchange="renderSalesInvoicesTable()">
+                <option value="">كل المخازن</option>
+              </select>
+            </div>
             <div class="table-wrap">
               <table class="data-table">
                 <thead><tr><th>رقم الفاتورة</th><th>التاريخ</th><th>العميل</th><th>المخزن</th><th>الإجمالي</th><th>طريقة الدفع</th><th>الحالة</th><th></th></tr></thead>
@@ -4281,6 +4288,7 @@ function ensureWarehousesLoaded(){
     fillSaleWarehouses();
     fillItemFilterWarehouseSelect();
     fillPurchaseInvoiceWarehouseFilter();
+    fillSalesInvoiceWarehouseFilter();
     fillMfgStockWarehouseFilter();
     if(document.getElementById('usersList')) renderUsersTable();
     renderDashWarehouseTable();
@@ -7707,7 +7715,16 @@ function buildInvoiceItemsDetailHtml(items){
 
 function renderSalesInvoicesTable(){
   const tbody = document.getElementById('salesInvoicesBody');
-  tbody.innerHTML = allSalesInvoices.map(inv => {
+  const search = (document.getElementById('salesInvoiceSearch')?.value || '').trim().toLowerCase();
+  const warehouseFilter = document.getElementById('salesInvoiceWarehouseFilter')?.value || '';
+
+  const rows = allSalesInvoices.filter(inv => {
+    const matchesSearch = !search || String(inv.number).includes(search) || (inv.customerName||'').toLowerCase().includes(search);
+    const matchesWarehouse = !warehouseFilter || inv.warehouseId === warehouseFilter;
+    return matchesSearch && matchesWarehouse;
+  });
+
+  tbody.innerHTML = rows.map(inv => {
     const dt = inv.date && inv.date.toDate ? inv.date.toDate() : new Date();
     const statusMap = { confirmed:'<span class="badge ok">مؤكدة</span>', returned:'<span class="badge warn">مرتجعة بالكامل</span>', partially_returned:'<span class="badge warn">مرتجعة جزئيًا</span>' };
     return `<tr id="row-sale-${inv.id}">
@@ -7727,7 +7744,16 @@ function renderSalesInvoicesTable(){
     <tr id="details-sale-${inv.id}" style="display:none;">
       <td colspan="8" style="background:var(--input-bg);">${buildInvoiceItemsDetailHtml(inv.items)}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="8" style="text-align:center; color:var(--muted);">لا توجد فواتير بعد</td></tr>';
+  }).join('') || `<tr><td colspan="8" style="text-align:center; color:var(--muted);">${search || warehouseFilter ? 'لا توجد فواتير مطابقة' : 'لا توجد فواتير بعد'}</td></tr>`;
+}
+
+function fillSalesInvoiceWarehouseFilter(){
+  const el = document.getElementById('salesInvoiceWarehouseFilter');
+  if(!el) return;
+  const cur = el.value;
+  const allowed = getAllowedWarehouses();
+  el.innerHTML = '<option value="">كل المخازن</option>' + allowed.map(w => `<option value="${w.id}">${escapeHtml(w.name)}</option>`).join('');
+  if(cur && allowed.some(w => w.id === cur)) el.value = cur;
 }
 
 /* بيفتح/يقفل صف تفاصيل أصناف الفاتورة تحت صفها في جدول فواتير البيع/الشراء */
@@ -11304,6 +11330,7 @@ async function renderItemMovementReport(){
   const itemId = document.getElementById('repMoveItem').value;
   const fromStr = document.getElementById('repMoveFrom').value;
   const toStr = document.getElementById('repMoveTo').value;
+  const invoiceSearch = (document.getElementById('repMoveInvoiceNo')?.value || '').trim();
 
   let query = itemId
     ? db.collection('itemMovements').where('itemId','==',itemId)
@@ -11335,18 +11362,23 @@ async function renderItemMovementReport(){
     const dt = d.date && d.date.toDate ? d.date.toDate() : new Date();
     if(from && dt < from) return;
     if(to && dt > to) return;
+    // بيان الحركة بيتسجل فيه رقم الفاتورة عادة بصيغة "فاتورة بيع/شراء #123" — بنسحبه منه هنا
+    // عشان يبقى قابل للبحث والعرض كعمود مستقل، من غير ما نغيّر شكل تخزين البيانات نفسها
+    const invMatch = (d.reason || '').match(/#(\d+)/);
+    const invoiceNo = invMatch ? invMatch[1] : '';
+    if(invoiceSearch && invoiceNo !== invoiceSearch) return;
     const it = allItems.find(i => i.id === d.itemId);
     const wh = allWarehouses.find(w => w.id === d.warehouseId);
-    rows.push({ dt, itemName: it?it.name:'—', whName: wh?wh.name:'—', type: d.type, qty: d.qty, balanceAfter: d.balanceAfter, reason: d.reason });
+    rows.push({ dt, itemName: it?it.name:'—', whName: wh?wh.name:'—', type: d.type, qty: d.qty, balanceAfter: d.balanceAfter, reason: d.reason, invoiceNo });
   });
 
   box.innerHTML = `<div class="table-wrap"><table class="data-table">
-    <thead><tr><th>التاريخ</th><th>الصنف</th><th>المخزن</th><th>النوع</th><th>الكمية</th><th>الرصيد بعدها</th><th>البيان</th></tr></thead>
+    <thead><tr><th>التاريخ</th><th>الصنف</th><th>المخزن</th><th>النوع</th><th>الكمية</th><th>الرصيد بعدها</th><th>رقم الفاتورة</th><th>البيان</th></tr></thead>
     <tbody>${rows.map(r => {
       const sign = ['out','transfer_out'].includes(r.type) ? '-' : '+';
       const color = sign === '-' ? 'var(--red)' : 'var(--green)';
-      return `<tr><td>${r.dt.toLocaleDateString('ar-EG-u-nu-latn')}</td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.whName)}</td><td>${escapeHtml(typeLabel[r.type]||r.type)}</td><td style="color:${color}">${sign}${fmt(Math.abs(r.qty))}</td><td>${fmt(r.balanceAfter)}</td><td>${escapeHtml(r.reason||'—')}</td></tr>`;
-    }).join('') || '<tr><td colspan="7" style="text-align:center; color:var(--muted);">لا توجد حركة مطابقة</td></tr>'}</tbody>
+      return `<tr><td>${r.dt.toLocaleDateString('ar-EG-u-nu-latn')}</td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.whName)}</td><td>${escapeHtml(typeLabel[r.type]||r.type)}</td><td style="color:${color}">${sign}${fmt(Math.abs(r.qty))}</td><td>${fmt(r.balanceAfter)}</td><td>${r.invoiceNo ? '<b>#'+escapeHtml(r.invoiceNo)+'</b>' : '—'}</td><td>${escapeHtml(r.reason||'—')}</td></tr>`;
+    }).join('') || `<tr><td colspan="8" style="text-align:center; color:var(--muted);">${invoiceSearch ? 'لا توجد حركة بهذا رقم الفاتورة' : 'لا توجد حركة مطابقة'}</td></tr>`}</tbody>
   </table></div>`;
 }
 
