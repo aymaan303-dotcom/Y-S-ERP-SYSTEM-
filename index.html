@@ -4504,7 +4504,7 @@ function renderItemsTable(){
         <td>${escapeHtml(unitName)}</td>
         <td>${fmt(buyPerUnit)} ج</td>
         <td>${fmt(sellPerUnit)} ج</td>
-        <td>${fmt(totalCount)} قطعة</td>
+        <td><b style="color:${isLow ? 'var(--red)' : 'var(--green)'};">${fmt(totalCount)} قطعة</b></td>
         <td>${fmt(totalWeight)} كجم</td>
         <td>${breakdownHtml}</td>
         <td><b>${fmt(itemValue)} ج</b></td>
@@ -8343,7 +8343,7 @@ function renderMfgStockTable(){
       <td><b>${escapeHtml(it.name||'')}</b></td>
       <td>${escapeHtml(u.name || 'الوحدة')}</td>
       <td>${fmt(u.buyPrice || 0)} ج</td>
-      <td>${fmt(totalCount)} قطعة</td>
+      <td><b style="color:var(--green);">${fmt(totalCount)} قطعة</b></td>
       <td>${fmt(totalWeight)} كجم</td>
       <td>${breakdownHtml}</td>
       <td><b>${fmt(itemValue)} ج</b></td>
