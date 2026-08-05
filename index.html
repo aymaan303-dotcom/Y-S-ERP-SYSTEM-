@@ -1556,6 +1556,9 @@
               </div>
 
               <div class="panel">
+                <div class="field"><label>رقم الفاتورة</label>
+                  <input type="number" id="saleInvoiceNumberInput" min="1" step="1" placeholder="اقتراح تلقائي">
+                </div>
                 <div class="field"><label>المخزن</label><select id="saleWarehouse" onchange="renderCartSearch()"></select></div>
                 <div class="field"><label>العميل</label><select id="saleCustomer" onchange="document.getElementById('saleCustomerNew').value=''; updateCustomerBalanceHint()"></select>
                   <input type="text" id="saleCustomerNew" placeholder="أو اكتب اسم عميل جديد (يُسجَّل تلقائيًا عند الحفظ)" oninput="if(this.value) document.getElementById('saleCustomer').value=''; updateCustomerBalanceHint()" style="margin-top:6px; width:100%; padding:9px 12px; border-radius:8px; background:var(--input-bg); border:1px solid var(--border); color:var(--text); font-family:'Cairo'; font-size:12.5px; box-sizing:border-box;">
@@ -1742,6 +1745,9 @@
               </div>
 
               <div class="panel">
+                <div class="field"><label>رقم الفاتورة</label>
+                  <input type="number" id="purchaseInvoiceNumberInput" min="1" step="1" placeholder="اقتراح تلقائي">
+                </div>
                 <div class="field"><label>المخزن</label><select id="purchaseWarehouse"></select></div>
                 <div class="field"><label>المورد</label><select id="purchaseSupplier" onchange="document.getElementById('purchaseSupplierNew').value=''; updateSupplierBalanceHint()"></select>
                   <input type="text" id="purchaseSupplierNew" placeholder="أو اكتب اسم مورد جديد (يُسجَّل تلقائيًا عند الحفظ)" oninput="if(this.value) document.getElementById('purchaseSupplier').value=''; updateSupplierBalanceHint()" style="margin-top:6px; width:100%; padding:9px 12px; border-radius:8px; background:var(--input-bg); border:1px solid var(--border); color:var(--text); font-family:'Cairo'; font-size:12.5px; box-sizing:border-box;">
@@ -7309,6 +7315,19 @@ function switchSTab(tab){
   document.querySelectorAll('.tab-btn[data-stab]').forEach(el => el.classList.toggle('active', el.dataset.stab === tab));
   ['invoices','new','returns','quotes'].forEach(t => document.getElementById('stab-' + t).style.display = t === tab ? 'block' : 'none');
   if(tab === 'quotes') loadQuotesModule();
+  if(tab === 'new') prefillInvoiceNumberPlaceholder('saleInvoiceNumberInput', 'salesInvoiceNo');
+}
+
+/* بيوري رقم الفاتورة المقترح تلقائيًا كـ placeholder (نص باهت) من غير ما يحجز الرقم فعليًا —
+   عشان المستخدم يقدر يسيب الخانة فاضية (فيتولد له نفس الرقم ده تلقائي عند الحفظ)، أو يكتب رقم تاني بنفسه. */
+async function prefillInvoiceNumberPlaceholder(inputElId, counterField){
+  const el = document.getElementById(inputElId);
+  if(!el || el.value) return;
+  try{
+    const doc = await db.collection('settings').doc('counters').get();
+    const current = doc.exists ? (doc.data()[counterField] || 0) : 0;
+    el.placeholder = 'اقتراح تلقائي: ' + (current + 1);
+  }catch(e){ /* تجاهل أي خطأ هنا، الرقم التلقائي هيتولد عادي عند الحفظ */ }
 }
 
 function fillSaleWarehouses(){
@@ -7569,6 +7588,33 @@ function renderCartTable(){
   return { subtotal, discountAmt, vatAmt, grandTotal };
 }
 
+/* بيرجع رقم الفاتورة اللي المستخدم كتبه يدوي (لو كتب حاجة في خانة رقم الفاتورة)، أو بيولّد رقم
+   تلقائي بالتسلسل العادي لو الخانة فاضية. لو الرقم اليدوي مستخدم بالفعل في نفس نوع الفواتير
+   بيرفض الحفظ برسالة واضحة. وبعد ما يتأكد إن الرقم متاح، بيرفع العداد المشترك لأعلى من الرقم
+   ده (لو أعلى من قيمته الحالية) عشان الاقتراح التلقائي القادم يفضل دايمًا قدام أي رقم اتكتب يدوي. */
+async function resolveManualOrAutoInvoiceNumber(inputElId, counterField, collectionName, autoFn){
+  const el = document.getElementById(inputElId);
+  const manualVal = el ? el.value.trim() : '';
+  if(manualVal === ''){
+    return await autoFn();
+  }
+  const n = parseInt(manualVal, 10);
+  if(!Number.isFinite(n) || n <= 0){
+    throw new Error('رقم الفاتورة لازم يكون رقم صحيح أكبر من صفر');
+  }
+  const dup = await db.collection(collectionName).where('number', '==', n).limit(1).get();
+  if(!dup.empty){
+    throw new Error(`رقم الفاتورة ${n} مستخدم بالفعل في فواتير ${collectionName === 'salesInvoices' ? 'البيع' : 'الشراء'} — اختار رقم تاني`);
+  }
+  const counterRef = db.collection('settings').doc('counters');
+  await db.runTransaction(async (tx) => {
+    const doc = await tx.get(counterRef);
+    const current = doc.exists ? (doc.data()[counterField] || 0) : 0;
+    if(n > current) tx.set(counterRef, { [counterField]: n }, { merge: true });
+  });
+  return n;
+}
+
 async function getNextInvoiceNumber(){
   const counterRef = db.collection('settings').doc('counters');
   return await db.runTransaction(async (tx) => {
@@ -7617,7 +7663,7 @@ async function saveSalesInvoiceInner(){
   // بنجيب رقم الفاتورة وإعدادات الشركة على التوازي بدل واحد ورا التاني — كانوا بياخدوا
   // رحلة شبكة منفصلة بالتتابع وده كان سبب رئيسي في اللاج المحسوس وقت الحفظ
   const [invoiceNo, settingsDoc] = await Promise.all([
-    getNextInvoiceNumber(),
+    resolveManualOrAutoInvoiceNumber('saleInvoiceNumberInput', 'salesInvoiceNo', 'salesInvoices', getNextInvoiceNumber),
     db.collection('settings').doc('company').get(),
   ]);
   const customer = allCustomers.find(x => x.id === customerId);
@@ -7691,6 +7737,7 @@ async function saveSalesInvoiceInner(){
   }
   cart = [];
   document.getElementById('saleDiscount').value = 0;
+  document.getElementById('saleInvoiceNumberInput').value = '';
   renderCartTable();
   switchSTab('invoices');
 }
@@ -8005,6 +8052,7 @@ function switchPurTab(tab){
   ['invoices','new','returns','orders','manufacturing'].forEach(t => document.getElementById('putab-' + t).style.display = t === tab ? 'block' : 'none');
   if(tab === 'orders') loadPurchaseOrdersModule();
   if(tab === 'manufacturing') ensurePendingManufacturingLoaded();
+  if(tab === 'new') prefillInvoiceNumberPlaceholder('purchaseInvoiceNumberInput', 'purchaseInvoiceNo');
 }
 
 let pendingManufacturingListenerStarted = false;
@@ -9528,7 +9576,7 @@ async function savePurchaseInvoiceInner(){
   }
 
   const [invoiceNo, settingsDoc] = await Promise.all([
-    getNextPurchaseInvoiceNumber(),
+    resolveManualOrAutoInvoiceNumber('purchaseInvoiceNumberInput', 'purchaseInvoiceNo', 'purchaseInvoices', getNextPurchaseInvoiceNumber),
     db.collection('settings').doc('company').get(),
   ]);
   const supplier = allSuppliers.find(x => x.id === supplierId);
@@ -9628,6 +9676,7 @@ async function savePurchaseInvoiceInner(){
   }
   pcart = [];
   document.getElementById('purchaseDiscount').value = 0;
+  document.getElementById('purchaseInvoiceNumberInput').value = '';
   document.getElementById('purchaseAlsoSell').checked = false;
   document.getElementById('purchaseAlsoSellBox').style.display = 'none';
   document.getElementById('purchaseSaleDiscount').value = 0;
