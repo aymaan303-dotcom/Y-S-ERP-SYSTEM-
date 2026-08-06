@@ -640,6 +640,10 @@
         </div>
         <div class="nav-item" data-page="manufacturing" onclick="goPage('manufacturing')"><span class="ic">🏭</span> التصنيع</div>
         <div class="nav-item" data-page="customers" onclick="goPage('customers')"><span class="ic">👥</span> العملاء والموردون</div>
+        <div class="nav-item" data-page="tasks" onclick="goPage('tasks')">
+          <span class="ic">✅</span> المهام اليومية
+          <span class="nav-badge" id="tasksNavBadge" style="display:none;">0</span>
+        </div>
 
         <div class="nav-group-title">المالية</div>
         <div class="nav-item" data-page="treasury" onclick="goPage('treasury')">
@@ -1205,6 +1209,55 @@
               </tr></thead>
               <tbody id="approvalsTableBody"></tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- ===== DAILY TASKS PAGE ===== -->
+        <div id="page-tasks" style="display:none;">
+          <div class="tabs">
+            <div class="tab-btn active" data-taskstab="mine" onclick="switchTasksTab('mine')">مهامي</div>
+            <div class="tab-btn" data-taskstab="all" id="allTasksTabBtn" style="display:none;" onclick="switchTasksTab('all')">
+              كل المهام <span class="nav-badge" id="tasksAwaitingBadge" style="display:none;">0</span>
+            </div>
+          </div>
+
+          <!-- مهامي -->
+          <div id="taskstab-mine">
+            <div class="toolbar">
+              <select id="myTasksFilter" onchange="renderMyTasks()">
+                <option value="open">المفتوحة (لم تنتهِ)</option>
+                <option value="awaiting_approval">بانتظار موافقة المدير</option>
+                <option value="rejected">مرفوضة (تحتاج إعادة تنفيذ)</option>
+                <option value="approved">المعتمدة</option>
+                <option value="all">كل مهامي</option>
+              </select>
+              <div class="grow"></div>
+            </div>
+            <div id="myTasksList"></div>
+          </div>
+
+          <!-- كل المهام (مدير/صاحب صلاحية) -->
+          <div id="taskstab-all" style="display:none;">
+            <div class="toolbar">
+              <select id="allTasksFilter" onchange="renderAllTasks()">
+                <option value="all">كل الحالات</option>
+                <option value="pending">لم تبدأ</option>
+                <option value="in_progress">جاري التنفيذ</option>
+                <option value="awaiting_approval">بانتظار الموافقة</option>
+                <option value="approved">معتمدة</option>
+                <option value="rejected">مرفوضة</option>
+              </select>
+              <div class="grow"></div>
+              <button class="btn btn-primary" style="width:auto;" onclick="openTaskModal()">+ تاسك جديد</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr>
+                  <th>النوع</th><th>التفاصيل</th><th>المكلّف</th><th>مرتبط بـ</th><th>تاريخ التنفيذ</th><th>الحالة</th><th>الإجراء</th>
+                </tr></thead>
+                <tbody id="allTasksTableBody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -2500,6 +2553,41 @@
   </div>
 </div>
 
+<!-- ===== TASK MODAL (تاسك جديد / تعديل) ===== -->
+<div class="modal-overlay" id="taskModalOverlay">
+  <div class="modal-box" style="max-width:480px;">
+    <div class="modal-head"><h3 id="taskModalTitle">تاسك جديد</h3><span class="modal-close" onclick="closeTaskModal()">✕</span></div>
+    <div class="form-row">
+      <div class="field"><label>نوع التاسك *</label>
+        <select id="taskType">
+          <option value="load_goods">🚚 تحميل بضاعة لعميل</option>
+          <option value="purchase_goods">🛒 شراء بضاعة من مورد</option>
+          <option value="collect_cash">💵 تحصيل نقدية</option>
+          <option value="collect_checks">📄 تحصيل شيكات</option>
+          <option value="other">📝 مهمة أخرى</option>
+        </select>
+      </div>
+      <div class="field"><label>الموظف المكلّف *</label><select id="taskAssignedTo"></select></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>الجهة المرتبطة (اختياري)</label>
+        <select id="taskPartyType" onchange="fillTaskPartyOptions()">
+          <option value="">بدون</option>
+          <option value="customer">عميل</option>
+          <option value="supplier">مورد</option>
+        </select>
+      </div>
+      <div class="field" id="taskPartySelectField" style="display:none;"><label>الاسم</label><select id="taskPartyId"></select></div>
+    </div>
+    <div class="field"><label>تفاصيل المهمة *</label><textarea id="taskDetails" rows="3" placeholder="مثال: تحميل 5 طن حديد 12 مم لعميل الفا للمقاولات"></textarea></div>
+    <div class="field"><label>تاريخ التنفيذ (اختياري)</label><input type="date" id="taskDueDate"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeTaskModal()">إلغاء</button>
+      <button class="btn btn-primary" onclick="saveTask(this)">حفظ وإرسال للموظف</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== CHECK MODAL (إضافة شيك) ===== -->
 <div class="modal-overlay" id="checkModalOverlay">
   <div class="modal-box" style="max-width:440px;">
@@ -2837,6 +2925,7 @@ auth.onAuthStateChanged(async (user) => {
     if(currentUser.role === 'admin') checkAutoBackup();
     if(currentUser.role === 'admin') startPendingApprovalsBadgeListener();
     startChecksDueBadgeListener();
+    startTasksBadgeListener();
   }else{
     if(currentUser) logAction('auth', 'تسجيل خروج', currentUser.name || currentUser.email);
     currentUser = null;
@@ -2853,7 +2942,7 @@ function goPage(page){
     showToast('هذه الشاشة مخصصة لمدير النظام فقط');
     return;
   }
-  if(page !== 'dashboard' && page !== 'settings' && !hasPermission(page)){
+  if(page !== 'dashboard' && page !== 'settings' && page !== 'tasks' && !hasPermission(page)){
     showToast('ليس لديك صلاحية للوصول لهذه الشاشة');
     return;
   }
@@ -2862,7 +2951,7 @@ function goPage(page){
   const target = document.querySelector(`.nav-item[data-page="${page}"]`);
   if(target) target.classList.add('active');
 
-  ['dashboard','settings','items','warehouses','customers','treasury','approvals','sales','purchases','manufacturing','accounting','reports','hr'].forEach(p => {
+  ['dashboard','settings','items','warehouses','customers','treasury','approvals','sales','purchases','manufacturing','accounting','reports','hr','tasks'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if(el) el.style.display = (page === p) ? 'block' : 'none';
   });
@@ -2881,6 +2970,7 @@ function goPage(page){
     accounting: ['الحسابات العامة', 'دليل الحسابات والقيود والتقارير المالية'],
     reports: ['التقارير', 'تقارير تفصيلية عن كل جوانب النشاط'],
     hr: ['الموظفون والرواتب', 'بيانات الموظفين، الحضور والانصراف، وحساب الرواتب'],
+    tasks: ['المهام اليومية ✅', 'إسناد تاسكات للموظفين ومتابعة تنفيذها والموافقة عليها'],
   };
   document.getElementById('pageTitle').textContent = titles[page][0];
   document.getElementById('pageSub').textContent = titles[page][1];
@@ -2896,6 +2986,7 @@ function goPage(page){
   if(page === 'accounting') loadAccountingPage();
   if(page === 'reports') loadReportsPage();
   if(page === 'hr') loadHRPage();
+  if(page === 'tasks') loadTasksPage();
 
   if(window.innerWidth <= 860) document.getElementById('sidebar').classList.remove('open');
 }
@@ -11889,6 +11980,7 @@ const PERMISSION_MODULES = [
   { key:'hr', label:'الموظفون والرواتب' },
   { key:'accounting', label:'الحسابات العامة' },
   { key:'reports', label:'التقارير' },
+  { key:'tasks', label:'المهام اليومية (إسناد واعتماد)' },
 ];
 
 /* تنسيق الصلاحيات: permissions[module] ممكن يكون:
@@ -11917,7 +12009,7 @@ function moduleAccessSummary(permissions, key){
 function applyPermissionsToNav(){
   document.querySelectorAll('.nav-item[data-page]').forEach(el => {
     const page = el.dataset.page;
-    if(page === 'dashboard') return;
+    if(page === 'dashboard' || page === 'tasks') return;
     if(page === 'settings' || page === 'approvals'){
       el.style.display = (currentUser.role === 'admin') ? 'flex' : 'none';
       return;
@@ -12490,6 +12582,297 @@ async function runNewPeriodReset(){
     if(progress) progress.textContent = '❌ حدث خطأ أثناء التنفيذ: ' + e.message + ' — راجع البيانات واسترجع النسخة الاحتياطية لو لزم الأمر.';
     showToast('حدث خطأ أثناء التنفيذ، راجع التفاصيل بالأسفل');
   }
+}
+
+/* =========================================================
+   DAILY TASKS MODULE (المهام اليومية)
+   المدير (أو أي مستخدم عنده صلاحية 'tasks' بتعديل) بيسند تاسك لموظف معين
+   (تحميل بضاعة لعميل، شراء بضاعة من مورد، تحصيل نقدية، تحصيل شيكات، أو
+   مهمة حرة). الموظف بيبدأ التنفيذ ثم يعلّم المهمة "تم الإنجاز"، فتروح
+   لحالة "بانتظار موافقة المدير"، وبعدين المدير يعتمدها أو يرفضها مع سبب.
+   ========================================================= */
+const TASK_TYPE_LABELS = {
+  load_goods: '🚚 تحميل بضاعة لعميل',
+  purchase_goods: '🛒 شراء بضاعة من مورد',
+  collect_cash: '💵 تحصيل نقدية',
+  collect_checks: '📄 تحصيل شيكات',
+  other: '📝 مهمة أخرى',
+};
+const TASK_STATUS_LABELS = {
+  pending: '<span class="badge warn">لم تبدأ</span>',
+  in_progress: '<span class="badge warn">جاري التنفيذ</span>',
+  awaiting_approval: '<span class="badge warn" style="background:rgba(59,130,246,0.15); color:#3b82f6;">بانتظار موافقة المدير</span>',
+  approved: '<span class="badge ok">معتمدة ✔</span>',
+  rejected: '<span class="badge warn" style="background:rgba(239,68,68,0.15)">مرفوضة</span>',
+};
+
+let allTasks = [];
+let tasksListenerStarted = false;
+
+function canManageTasks(){ return isAdminUser() || hasPermission('tasks','edit'); }
+
+function loadTasksPage(){
+  const allTabBtn = document.getElementById('allTasksTabBtn');
+  if(allTabBtn) allTabBtn.style.display = canManageTasks() ? 'flex' : 'none';
+  if(!canManageTasks()) switchTasksTab('mine');
+  ensureTasksLoaded();
+  fillTaskAssigneeOptions();
+}
+
+function ensureTasksLoaded(){
+  if(tasksListenerStarted) return;
+  tasksListenerStarted = true;
+  db.collection('tasks').orderBy('createdAt','desc').limit(300).onSnapshot(snap => {
+    allTasks = [];
+    snap.forEach(d => allTasks.push({ id:d.id, ...d.data() }));
+    renderMyTasks();
+    renderAllTasks();
+  }, err => showLoadError('المهام اليومية', err));
+}
+
+function switchTasksTab(tab){
+  if(tab === 'all' && !canManageTasks()) return;
+  document.querySelectorAll('.tab-btn[data-taskstab]').forEach(el => el.classList.toggle('active', el.dataset.taskstab === tab));
+  document.getElementById('taskstab-mine').style.display = tab === 'mine' ? 'block' : 'none';
+  document.getElementById('taskstab-all').style.display = tab === 'all' ? 'block' : 'none';
+}
+
+function taskPartyLabel(t){
+  if(!t.partyType || !t.partyName) return '—';
+  return (t.partyType === 'customer' ? '👤 ' : '🏭 ') + escapeHtml(t.partyName);
+}
+
+function renderMyTasks(){
+  const box = document.getElementById('myTasksList');
+  if(!box || !currentUser) return;
+  const filterEl = document.getElementById('myTasksFilter');
+  const filter = filterEl ? filterEl.value : 'open';
+  let list = allTasks.filter(t => t.assignedToId === currentUser.uid);
+  if(filter === 'open') list = list.filter(t => t.status === 'pending' || t.status === 'in_progress');
+  else if(filter !== 'all') list = list.filter(t => t.status === filter);
+
+  box.innerHTML = list.map(t => {
+    const dueTxt = t.dueDate ? `<span style="color:var(--muted); font-size:12.5px;">📅 ${escapeHtml(t.dueDate)}</span>` : '';
+    let actions = '';
+    if(t.status === 'pending') actions = `<button class="btn btn-primary btn-sm" style="width:auto;" onclick="startTask('${t.id}')">▶ بدء التنفيذ</button>`;
+    else if(t.status === 'in_progress') actions = `<button class="btn btn-primary btn-sm" style="width:auto;" onclick="completeTask('${t.id}')">✅ تم الإنجاز</button>`;
+    else if(t.status === 'rejected') actions = `<button class="btn btn-ghost btn-sm" style="width:auto;" onclick="startTask('${t.id}')">🔁 إعادة التنفيذ</button>`;
+    const rejectNote = t.status === 'rejected' && t.rejectReason ? `<div style="color:var(--red); font-size:12.5px; margin-top:2px;">سبب الرفض: ${escapeHtml(t.rejectReason)}</div>` : '';
+    const party = taskPartyLabel(t);
+    return `
+      <div class="alert-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <b>${TASK_TYPE_LABELS[t.type] || t.type}${party !== '—' ? ` — ${party}` : ''}</b>
+          <div style="display:flex; align-items:center; gap:10px;">${dueTxt}${TASK_STATUS_LABELS[t.status] || ''}</div>
+        </div>
+        <div style="color:var(--muted); font-size:13px;">${escapeHtml(t.details || '')}</div>
+        ${rejectNote}
+        ${actions ? `<div style="display:flex; justify-content:flex-end;">${actions}</div>` : ''}
+      </div>`;
+  }).join('') || '<div class="empty-state">لا توجد مهام مطابقة حاليًا 🎉</div>';
+}
+
+function renderAllTasks(){
+  const tbody = document.getElementById('allTasksTableBody');
+  if(!tbody) return;
+
+  let awaitingCount = 0;
+  allTasks.forEach(t => { if(t.status === 'awaiting_approval') awaitingCount++; });
+  setNavBadge('tasksAwaitingBadge', awaitingCount);
+
+  if(!canManageTasks()) return;
+  const filterEl = document.getElementById('allTasksFilter');
+  const filter = filterEl ? filterEl.value : 'all';
+  const list = filter === 'all' ? allTasks : allTasks.filter(t => t.status === filter);
+
+  tbody.innerHTML = list.map(t => {
+    let actionBtns = `<span class="btn-icon" title="تعديل" onclick="openTaskModal('${t.id}')">✎</span>
+      <span class="btn-icon" title="حذف" onclick="deleteTask('${t.id}')">🗑</span>`;
+    if(t.status === 'awaiting_approval'){
+      actionBtns = `<button class="btn btn-primary btn-sm" style="width:auto;" onclick="approveTask('${t.id}')">✅ اعتماد</button>
+        <button class="btn btn-ghost btn-sm" style="width:auto; color:var(--red);" onclick="rejectTask('${t.id}')">❌ رفض</button>`;
+    }
+    return `<tr>
+      <td>${TASK_TYPE_LABELS[t.type] || t.type}</td>
+      <td>${escapeHtml(t.details || '')}</td>
+      <td>${escapeHtml(t.assignedToName || '—')}</td>
+      <td>${taskPartyLabel(t)}</td>
+      <td>${t.dueDate ? escapeHtml(t.dueDate) : '—'}</td>
+      <td>${TASK_STATUS_LABELS[t.status] || ''}</td>
+      <td style="display:flex; gap:6px;">${actionBtns}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" style="text-align:center; color:var(--muted);">لا توجد مهام</td></tr>';
+}
+
+function fillTaskAssigneeOptions(){
+  const sel = document.getElementById('taskAssignedTo');
+  if(!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = allUsersCache.map(u => `<option value="${u.id}">${escapeHtml(u.name || u.email)}</option>`).join('');
+  if(cur) sel.value = cur;
+}
+
+function fillTaskPartyOptions(){
+  const type = document.getElementById('taskPartyType').value;
+  const field = document.getElementById('taskPartySelectField');
+  const sel = document.getElementById('taskPartyId');
+  if(!type){ field.style.display = 'none'; sel.innerHTML = ''; return; }
+  field.style.display = 'block';
+  const list = type === 'customer' ? allCustomers : allSuppliers;
+  sel.innerHTML = list.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+}
+
+let editingTaskId = null;
+function openTaskModal(id){
+  if(!canManageTasks()){ showToast('ليس لديك صلاحية لإسناد المهام'); return; }
+  editingTaskId = id || null;
+  fillTaskAssigneeOptions();
+  document.getElementById('taskPartyType').value = '';
+  document.getElementById('taskPartySelectField').style.display = 'none';
+  if(editingTaskId){
+    const t = allTasks.find(x => x.id === editingTaskId);
+    if(!t) return;
+    document.getElementById('taskModalTitle').textContent = 'تعديل المهمة';
+    document.getElementById('taskType').value = t.type || 'other';
+    document.getElementById('taskAssignedTo').value = t.assignedToId || '';
+    if(t.partyType){
+      document.getElementById('taskPartyType').value = t.partyType;
+      fillTaskPartyOptions();
+      if(t.partyId) document.getElementById('taskPartyId').value = t.partyId;
+    }
+    document.getElementById('taskDetails').value = t.details || '';
+    document.getElementById('taskDueDate').value = t.dueDate || '';
+  }else{
+    document.getElementById('taskModalTitle').textContent = 'تاسك جديد';
+    document.getElementById('taskType').value = 'load_goods';
+    document.getElementById('taskDetails').value = '';
+    document.getElementById('taskDueDate').value = '';
+  }
+  document.getElementById('taskModalOverlay').classList.add('open');
+}
+function closeTaskModal(){ document.getElementById('taskModalOverlay').classList.remove('open'); editingTaskId = null; }
+
+async function saveTask(btn){
+  await withSaveGuard(btn, async () => {
+    const type = document.getElementById('taskType').value;
+    const assignedToId = document.getElementById('taskAssignedTo').value;
+    const details = document.getElementById('taskDetails').value.trim();
+    const dueDate = document.getElementById('taskDueDate').value || '';
+    const partyType = document.getElementById('taskPartyType').value || '';
+    const partyId = document.getElementById('taskPartyId').value || '';
+
+    if(!assignedToId){ showToast('اختر الموظف المكلّف بالمهمة'); return; }
+    if(!details){ showToast('اكتب تفاصيل المهمة'); return; }
+
+    const assignedUser = allUsersCache.find(u => u.id === assignedToId);
+    let partyName = '';
+    if(partyType && partyId){
+      const list = partyType === 'customer' ? allCustomers : allSuppliers;
+      const p = list.find(x => x.id === partyId);
+      partyName = p ? p.name : '';
+    }
+
+    const payload = {
+      type, details, dueDate,
+      partyType: partyType || null, partyId: partyId || null, partyName: partyName || null,
+      assignedToId, assignedToName: assignedUser ? (assignedUser.name || assignedUser.email) : '',
+    };
+
+    if(editingTaskId){
+      await db.collection('tasks').doc(editingTaskId).update(payload);
+      await logAction('tasks', 'تعديل مهمة', details);
+      showToast('تم تحديث المهمة');
+    }else{
+      await db.collection('tasks').add({
+        ...payload,
+        status: 'pending',
+        requestedById: currentUser.uid,
+        requestedByName: currentUser.name || currentUser.email,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      await logAction('tasks', 'إسناد مهمة جديدة', `${TASK_TYPE_LABELS[type] || type} — ${details} (للموظف: ${payload.assignedToName})`);
+      showToast('تم إرسال المهمة للموظف');
+    }
+    closeTaskModal();
+  });
+}
+
+async function deleteTask(id){
+  if(!canManageTasks()) return;
+  if(!confirm('هل أنت متأكد من حذف هذه المهمة نهائيًا؟')) return;
+  await db.collection('tasks').doc(id).delete();
+  await logAction('tasks', 'حذف مهمة', id);
+  showToast('تم حذف المهمة');
+}
+
+async function startTask(id){
+  const t = allTasks.find(x => x.id === id);
+  if(!t || !currentUser || t.assignedToId !== currentUser.uid) return;
+  await db.collection('tasks').doc(id).update({
+    status: 'in_progress',
+    startedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    rejectReason: firebase.firestore.FieldValue.delete(),
+  });
+  showToast('تم بدء تنفيذ المهمة، بالتوفيق 💪');
+}
+
+async function completeTask(id){
+  const t = allTasks.find(x => x.id === id);
+  if(!t || !currentUser || t.assignedToId !== currentUser.uid) return;
+  const note = prompt('أي ملاحظات عن تنفيذ المهمة؟ (اختياري)') || '';
+  await db.collection('tasks').doc(id).update({
+    status: 'awaiting_approval',
+    completionNote: note,
+    completedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+  showToast('تم إرسال المهمة للمدير للموافقة عليها');
+}
+
+async function approveTask(id){
+  if(!canManageTasks()) return;
+  if(!confirm('هل أنت متأكد من اعتماد إنجاز هذه المهمة؟')) return;
+  await db.collection('tasks').doc(id).update({
+    status: 'approved',
+    approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    approvedBy: currentUser.name || currentUser.email,
+  });
+  await logAction('tasks', 'اعتماد إنجاز مهمة', id);
+  showToast('تم اعتماد المهمة');
+}
+
+async function rejectTask(id){
+  if(!canManageTasks()) return;
+  const reason = prompt('اكتب سبب الرفض (هيظهر للموظف ويقدر يعيد التنفيذ):') || '';
+  await db.collection('tasks').doc(id).update({
+    status: 'rejected',
+    rejectReason: reason,
+    rejectedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+  await logAction('tasks', 'رفض مهمة', id + (reason ? ' — ' + reason : ''));
+  showToast('تم رفض المهمة وإعادتها للموظف');
+}
+
+/* عدّاد جرس التنبيهات جنب "المهام اليومية" في القائمة الجانبية:
+   للمدير (أو صاحب صلاحية الإدارة) بيوريه عدد المهام "بانتظار الموافقة"،
+   ولباقي الموظفين بيوريه عدد مهامهم اللي لسه ما بدأتش أو مرفوضة وعايزة إعادة تنفيذ */
+let tasksBadgeListenerStarted = false;
+function startTasksBadgeListener(){
+  if(tasksBadgeListenerStarted) return;
+  tasksBadgeListenerStarted = true;
+  const unsub = db.collection('tasks').onSnapshot(snap => {
+    if(!currentUser) return;
+    let count = 0;
+    snap.forEach(doc => {
+      const d = doc.data();
+      if(canManageTasks()){
+        if(d.status === 'awaiting_approval') count++;
+      }else if(d.assignedToId === currentUser.uid){
+        if(d.status === 'pending' || d.status === 'rejected') count++;
+      }
+    });
+    setNavBadge('tasksNavBadge', count);
+  }, err => console.warn('تعذر تحميل عدد المهام', err));
+  unsubscribers.push(unsub);
 }
 </script>
 </body>
