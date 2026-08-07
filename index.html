@@ -644,6 +644,7 @@
           <span class="ic">✅</span> المهام اليومية
           <span class="nav-badge" id="tasksNavBadge" style="display:none;">0</span>
         </div>
+        <div class="nav-item" data-page="kiosk" onclick="goPage('kiosk')"><span class="ic">🕐</span> تسجيل الحضور</div>
 
         <div class="nav-group-title">المالية</div>
         <div class="nav-item" data-page="treasury" onclick="goPage('treasury')">
@@ -840,6 +841,23 @@
                 </div>
               </div>
               <button class="btn btn-primary" style="width:auto;" onclick="saveCompany()">حفظ البيانات</button>
+            </div>
+
+            <div class="panel" style="margin-top:16px;">
+              <div class="panel-head"><h3>📍 موقع الشركة (للتحقق من الحضور)</h3></div>
+              <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
+                لما تحدد موقع الشركة ونطاق السماح، هيتم رفض تسجيل حضور/انصراف أي موظف من صفحة "تسجيل الحضور" لو كان خارج النطاق ده فعليًا، حتى لو معاه الـ PIN الصحيح.
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
+                <div class="field"><label>خط العرض (Latitude)</label><input type="number" id="attendanceLat" step="0.000001" placeholder="مثال: 30.123456"></div>
+                <div class="field"><label>خط الطول (Longitude)</label><input type="number" id="attendanceLng" step="0.000001" placeholder="مثال: 31.123456"></div>
+                <div class="field"><label>نطاق السماح (متر)</label><input type="number" id="attendanceRadius" min="10" step="10" placeholder="مثال: 150"></div>
+              </div>
+              <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm" style="width:auto;" onclick="useCurrentLocationForCompany()">📍 استخدم موقعي الحالي (وأنت واقف في الشركة)</button>
+                <button class="btn btn-primary" style="width:auto;" onclick="saveAttendanceLocation()">حفظ موقع الشركة</button>
+              </div>
+              <div id="attendanceLocationStatus" style="font-size:12px; color:var(--muted); margin-top:8px;"></div>
             </div>
           </div>
 
@@ -1261,6 +1279,18 @@
           </div>
         </div>
 
+        <!-- ===== SELF-SERVICE ATTENDANCE KIOSK PAGE (تسجيل الحضور الذاتي) ===== -->
+        <div id="page-kiosk" style="display:none;">
+          <div class="panel" style="max-width:440px; margin:30px auto; text-align:center;">
+            <div style="font-size:40px; margin-bottom:6px;">🕐</div>
+            <h3 style="margin-bottom:4px;">تسجيل حضور / انصراف</h3>
+            <p style="color:var(--muted); font-size:13px; margin-bottom:18px;">اكتب رقمك السري (PIN)، أو امسح باركود كارنيهك، ثم اضغط دخول</p>
+            <input type="text" id="kioskCodeInput" placeholder="PIN أو باركود..." style="text-align:center; font-size:24px; letter-spacing:4px; padding:14px;" autocomplete="off" onkeydown="if(event.key==='Enter'){ event.preventDefault(); kioskIdentify(); }">
+            <button class="btn btn-primary" style="width:100%; margin-top:12px;" onclick="kioskIdentify()">دخول</button>
+            <div id="kioskStatusMsg" style="margin-top:16px; font-size:13.5px; min-height:20px;"></div>
+          </div>
+        </div>
+
         <!-- ===== HR & PAYROLL PAGE ===== -->
         <div id="page-hr" style="display:none;">
           <div class="tabs">
@@ -1287,10 +1317,13 @@
 
           <!-- Attendance tab -->
           <div id="hrtab-attendance" style="display:none;">
+            <div style="font-size:12px; color:var(--muted); background:rgba(59,130,246,0.08); border-radius:8px; padding:8px 12px; margin-bottom:10px;">
+              💡 الطريقة الأساسية لتسجيل الحضور بقت من صفحة <b>"تسجيل الحضور"</b> في القائمة الجانبية (كل موظف يدخل PIN/باركود بتاعه بنفسه). الأزرار تحت دي مخصصة لتسجيل يدوي من المدير/الموارد البشرية فقط (لو حصلت مشكلة).
+            </div>
             <div class="toolbar">
               <select id="attendanceEmployeeSelect" class="grow"></select>
-              <button class="btn btn-primary" style="width:auto;" onclick="openAttendanceCameraModal('in')">📸 تسجيل حضور</button>
-              <button class="btn btn-ghost" style="width:auto;" onclick="openAttendanceCameraModal('out')">📸 تسجيل انصراف</button>
+              <button class="btn btn-primary" style="width:auto;" onclick="openAttendanceCameraModal('in')">📸 تسجيل حضور يدوي</button>
+              <button class="btn btn-ghost" style="width:auto;" onclick="openAttendanceCameraModal('out')">📸 تسجيل انصراف يدوي</button>
             </div>
             <div class="toolbar">
               <label style="font-size:13px; color:var(--muted);">عرض يوم:</label>
@@ -1298,9 +1331,27 @@
             </div>
             <div class="table-wrap">
               <table class="data-table">
-                <thead><tr><th>الموظف</th><th>وقت الحضور</th><th>وقت الانصراف</th><th>التأخير</th><th>الحالة</th><th></th></tr></thead>
+                <thead><tr><th>الموظف</th><th>وقت الحضور</th><th>وقت الانصراف</th><th>التأخير</th><th>الانصراف المبكر</th><th>الحالة</th><th></th></tr></thead>
                 <tbody id="attendanceTableBody"></tbody>
               </table>
+            </div>
+
+            <div class="panel" style="margin-top:20px;">
+              <div class="panel-head"><h3>📊 التقرير الشهري لكل موظف</h3></div>
+              <div class="toolbar">
+                <label style="font-size:13px; color:var(--muted);">الشهر:</label>
+                <input type="month" id="attendanceReportMonth">
+                <button class="btn btn-primary" style="width:auto;" onclick="renderAttendanceMonthlyReport()">عرض التقرير</button>
+                <div class="grow"></div>
+                <button class="btn btn-ghost" style="width:auto;" onclick="printAttendanceMonthlyReport()">🖨️ طباعة</button>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>الموظف</th><th>أيام حضور</th><th>أيام غياب</th><th>إجمالي دقائق التأخير</th><th>إجمالي دقائق الانصراف المبكر</th></tr></thead>
+                  <tbody id="attendanceMonthlyReportBody"></tbody>
+                </table>
+              </div>
+              <div class="empty-state" id="attendanceMonthlyReportEmpty" style="display:none;">اختر الشهر واضغط "عرض التقرير"</div>
             </div>
           </div>
 
@@ -1325,7 +1376,7 @@
             </p>
             <div class="table-wrap">
               <table class="data-table">
-                <thead><tr><th>الموظف</th><th>الراتب الأساسي</th><th>أيام الفترة</th><th>أيام الحضور</th><th>أيام الغياب</th><th>دقائق التأخير</th><th>خصم الغياب</th><th>خصم التأخير</th><th>خصم السلف (يدوي)</th><th>صافي الراتب</th></tr></thead>
+                <thead><tr><th>الموظف</th><th>الراتب الأساسي</th><th>أيام الفترة</th><th>أيام الحضور</th><th>أيام الغياب</th><th>دقائق التأخير</th><th>دقائق الانصراف المبكر</th><th>خصم الغياب</th><th>خصم التأخير</th><th>خصم الانصراف المبكر</th><th>خصم السلف (يدوي)</th><th>صافي الراتب</th></tr></thead>
                 <tbody id="payrollTableBody"></tbody>
               </table>
             </div>
@@ -2394,6 +2445,7 @@
       <div class="field"><label>موعد الحضور المتوقع</label><input type="time" id="employeeStartTime" value="09:00"></div>
     </div>
     <div class="form-row">
+      <div class="field"><label>موعد الانصراف المتوقع</label><input type="time" id="employeeEndTime" value="17:00"></div>
       <div class="field">
         <label>الحالة</label>
         <select id="employeeStatus">
@@ -2401,6 +2453,17 @@
           <option value="inactive">غير نشط</option>
         </select>
       </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label>الرقم السري (PIN) لتسجيل الحضور الذاتي *</label>
+        <div style="display:flex; gap:6px;">
+          <input type="text" id="employeePin" placeholder="4 أرقام مثلاً" maxlength="8" style="flex:1;">
+          <button type="button" class="btn btn-ghost btn-sm" style="width:auto; white-space:nowrap;" onclick="generateRandomEmployeePin()">🎲 توليد</button>
+        </div>
+        <small style="color:var(--muted); font-size:11px;">الموظف هيدخّل الرقم ده بنفسه في صفحة "تسجيل الحضور" عشان يثبت شخصيته — لازم يكون مختلف عن باقي الموظفين.</small>
+      </div>
+      <div class="field"><label>باركود الكارنيه (اختياري)</label><input type="text" id="employeeBarcode" placeholder="امسح الباركود هنا أو اتركه فاضي"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeEmployeeModal()">إلغاء</button>
@@ -2442,6 +2505,7 @@
       <img id="attendanceCapturedImg" style="width:100%; height:100%; object-fit:cover; display:none;">
     </div>
     <p style="text-align:center; font-size:13px; color:var(--muted); margin:10px 0;" id="attendanceStatusMsg">جاري تشغيل الكاميرا...</p>
+    <p style="text-align:center; font-size:12.5px; margin:0 0 8px;" id="attendanceLocationMsg">📍 جاري تحديد موقعك...</p>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="attendanceRetakeBtn" style="display:none;" onclick="retakeAttendancePhoto()">إعادة التقاط</button>
       <button class="btn btn-primary" id="attendanceCaptureBtn" onclick="captureAttendancePhoto()">📸 التقاط الصورة</button>
@@ -2962,21 +3026,23 @@ auth.onAuthStateChanged(async (user) => {
 });
 
 /* ---------- Navigation ---------- */
+let currentPage = 'dashboard';
 function goPage(page){
   if(page === 'settings' && (!currentUser || currentUser.role !== 'admin')){
     showToast('هذه الشاشة مخصصة لمدير النظام فقط');
     return;
   }
-  if(page !== 'dashboard' && page !== 'settings' && page !== 'tasks' && !hasPermission(page)){
+  if(page !== 'dashboard' && page !== 'settings' && page !== 'tasks' && page !== 'kiosk' && !hasPermission(page)){
     showToast('ليس لديك صلاحية للوصول لهذه الشاشة');
     return;
   }
+  currentPage = page;
 
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const target = document.querySelector(`.nav-item[data-page="${page}"]`);
   if(target) target.classList.add('active');
 
-  ['dashboard','settings','items','warehouses','customers','treasury','approvals','sales','purchases','manufacturing','accounting','reports','hr','tasks'].forEach(p => {
+  ['dashboard','settings','items','warehouses','customers','treasury','approvals','sales','purchases','manufacturing','accounting','reports','hr','tasks','kiosk'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if(el) el.style.display = (page === p) ? 'block' : 'none';
   });
@@ -2996,6 +3062,7 @@ function goPage(page){
     reports: ['التقارير', 'تقارير تفصيلية عن كل جوانب النشاط'],
     hr: ['الموظفون والرواتب', 'بيانات الموظفين، الحضور والانصراف، وحساب الرواتب'],
     tasks: ['المهام اليومية ✅', 'إسناد تاسكات للموظفين ومتابعة تنفيذها والموافقة عليها'],
+    kiosk: ['تسجيل الحضور 🕐', 'تسجيل حضور وانصراف الموظفين ذاتيًا بالـPIN أو الباركود مع تصوير وتحقق من الموقع'],
   };
   document.getElementById('pageTitle').textContent = titles[page][0];
   document.getElementById('pageSub').textContent = titles[page][1];
@@ -3012,6 +3079,7 @@ function goPage(page){
   if(page === 'reports') loadReportsPage();
   if(page === 'hr') loadHRPage();
   if(page === 'tasks') loadTasksPage();
+  if(page === 'kiosk') loadKioskPage();
 
   if(window.innerWidth <= 860) document.getElementById('sidebar').classList.remove('open');
 }
@@ -3632,6 +3700,9 @@ function loadHRPage(){
   if(!document.getElementById('payrollMonthSelect').value){
     document.getElementById('payrollMonthSelect').value = new Date().toISOString().slice(0,7);
   }
+  if(document.getElementById('attendanceReportMonth') && !document.getElementById('attendanceReportMonth').value){
+    document.getElementById('attendanceReportMonth').value = new Date().toISOString().slice(0,7);
+  }
   renderAttendanceTable();
 }
 
@@ -3679,6 +3750,9 @@ function openEmployeeModal(id){
     document.getElementById('employeePayFrequency').value = e.payFrequency || 'monthly';
     document.getElementById('employeeSalary').value = e.monthlySalary || 0;
     document.getElementById('employeeStartTime').value = e.expectedStartTime || '09:00';
+    document.getElementById('employeeEndTime').value = e.expectedEndTime || '17:00';
+    document.getElementById('employeePin').value = e.pin || '';
+    document.getElementById('employeeBarcode').value = e.barcode || '';
     document.getElementById('employeeStatus').value = e.status || 'active';
   }else{
     document.getElementById('employeeModalTitle').textContent = 'موظف جديد';
@@ -3689,12 +3763,23 @@ function openEmployeeModal(id){
     document.getElementById('employeePayFrequency').value = 'monthly';
     document.getElementById('employeeSalary').value = '';
     document.getElementById('employeeStartTime').value = '09:00';
+    document.getElementById('employeeEndTime').value = '17:00';
+    document.getElementById('employeePin').value = '';
+    document.getElementById('employeeBarcode').value = '';
     document.getElementById('employeeStatus').value = 'active';
   }
   toggleEmployeeSalaryLabel();
   document.getElementById('employeeModalOverlay').classList.add('open');
 }
 function closeEmployeeModal(){ document.getElementById('employeeModalOverlay').classList.remove('open'); }
+
+function generateRandomEmployeePin(){
+  let pin;
+  do{
+    pin = String(Math.floor(1000 + Math.random() * 9000));
+  }while(allEmployees.some(e => e.pin === pin && e.id !== document.getElementById('employeeId').value));
+  document.getElementById('employeePin').value = pin;
+}
 
 async function saveEmployee(){
   const name = document.getElementById('employeeName').value.trim();
@@ -3710,21 +3795,41 @@ async function saveEmployee(){
     monthlySalary,
     payFrequency,
     expectedStartTime: document.getElementById('employeeStartTime').value || '09:00',
+    expectedEndTime: document.getElementById('employeeEndTime').value || '17:00',
+    pin: document.getElementById('employeePin').value.trim(),
+    barcode: document.getElementById('employeeBarcode').value.trim(),
     status: document.getElementById('employeeStatus').value,
   };
+
+  const codeConflict = allEmployees.find(x => x.id !== document.getElementById('employeeId').value &&
+    ((payload.pin && x.pin === payload.pin) || (payload.barcode && x.barcode === payload.barcode)));
+  if(codeConflict){ showToast(`الـ PIN أو الباركود ده مستخدم بالفعل مع الموظف "${codeConflict.name}"`); return; }
 
   const id = document.getElementById('employeeId').value;
   if(id){
     await db.collection('employees').doc(id).update(payload);
+    await syncAttendanceDirectory(id, payload);
     await logAction('hr', 'تعديل بيانات موظف', name);
     showToast('تم تحديث بيانات الموظف');
   }else{
     payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-    await db.collection('employees').add(payload);
+    const ref = await db.collection('employees').add(payload);
+    await syncAttendanceDirectory(ref.id, payload);
     await logAction('hr', 'إضافة موظف', name);
     showToast('تم إضافة الموظف');
   }
   closeEmployeeModal();
+}
+
+/* نسخة مصغّرة من بيانات الموظف (الاسم، PIN، الباركود، مواعيد الحضور/الانصراف المتوقعة، الحالة)
+   بدون الراتب أو أي بيانات حساسة — عشان صفحة "تسجيل الحضور" الذاتية تقدر تتعرف على أي موظف
+   حتى لو المستخدم اللي فاتح الجهاز مالوش صلاحية "الموظفون والرواتب" أصلاً. */
+async function syncAttendanceDirectory(id, payload){
+  await db.collection('attendanceDirectory').doc(id).set({
+    name: payload.name, pin: payload.pin || '', barcode: payload.barcode || '',
+    expectedStartTime: payload.expectedStartTime, expectedEndTime: payload.expectedEndTime,
+    status: payload.status,
+  });
 }
 
 async function deleteEmployee(id){
@@ -3732,6 +3837,7 @@ async function deleteEmployee(id){
   if(!e) return;
   if(!confirm(`هل تريد حذف الموظف "${e.name}"؟ سجلات الحضور السابقة الخاصة به ستبقى محفوظة.`)) return;
   await db.collection('employees').doc(id).delete();
+  await db.collection('attendanceDirectory').doc(id).delete().catch(() => {});
   await logAction('hr', 'حذف موظف', e.name);
   showToast('تم حذف الموظف');
 }
@@ -3743,25 +3849,103 @@ function fillAttendanceEmployeeSelect(){
   el.innerHTML = active.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('') || '<option value="">لا يوجد موظفون نشطون</option>';
 }
 
-/* ---------- الحضور والانصراف (بالكاميرا) ---------- */
+/* ---------- الحضور والانصراف (بالكاميرا + الموقع الجغرافي) ---------- */
 let attendanceStream = null;
 let attendanceMode = 'in'; // 'in' or 'out'
 let attendanceCapturedDataUrl = null;
+let attendanceTargetEmployeeId = null; // مين اللي بيسجل دلوقتي (من الكشك أو من القائمة اليدوية في HR)
+let attendanceGeo = null; // { lat, lng, distance, withinRadius, accuracy } أو null لو لسه بيتحدد/فشل
 
-async function openAttendanceCameraModal(mode){
-  const empId = document.getElementById('attendanceEmployeeSelect').value;
-  if(!empId){ showToast('اختر الموظف أولاً'); return; }
+/* دليل مصغّر لبيانات الموظفين (بدون راتب) — متاح لأي مستخدم مسجّل دخول، تستخدمه صفحة الكشك
+   الذاتية للتعرف على الموظف بالـPIN/الباركود حتى لو مالوش صلاحية "الموظفون والرواتب" */
+let allAttendanceDirectory = [];
+let attendanceDirectoryListenerStarted = false;
+function ensureAttendanceDirectoryLoaded(){
+  if(attendanceDirectoryListenerStarted) return;
+  attendanceDirectoryListenerStarted = true;
+  db.collection('attendanceDirectory').onSnapshot(snap => {
+    allAttendanceDirectory = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }, err => console.warn('تعذر تحميل دليل الحضور:', err));
+}
+
+function loadKioskPage(){
+  ensureAttendanceDirectoryLoaded();
+  db.collection('settings').doc('company').get().then(doc => {
+    if(doc.exists){
+      const d = doc.data();
+      companySettingsCache.attendanceLat = typeof d.attendanceLat === 'number' ? d.attendanceLat : null;
+      companySettingsCache.attendanceLng = typeof d.attendanceLng === 'number' ? d.attendanceLng : null;
+      companySettingsCache.attendanceRadius = d.attendanceRadius || 150;
+    }
+  }).catch(() => {});
+  document.getElementById('kioskCodeInput').value = '';
+  document.getElementById('kioskStatusMsg').innerHTML = '';
+  setTimeout(() => document.getElementById('kioskCodeInput').focus(), 200);
+}
+
+/* المسافة بين نقطتين جغرافيتين بالمتر (معادلة Haversine) */
+function distanceMeters(lat1, lng1, lat2, lng2){
+  const R = 6371000;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function kioskIdentify(){
+  const code = document.getElementById('kioskCodeInput').value.trim();
+  document.getElementById('kioskCodeInput').value = '';
+  const statusEl = document.getElementById('kioskStatusMsg');
+  if(!code) return;
+  const emp = allAttendanceDirectory.find(e => e.status !== 'inactive' && ((e.pin && e.pin === code) || (e.barcode && e.barcode === code)));
+  if(!emp){
+    statusEl.innerHTML = '<span style="color:var(--red);">❌ الكود غير صحيح أو غير مسجّل، جرّب تاني</span>';
+    return;
+  }
+  statusEl.innerHTML = `جاري التجهيز لـ <b>${escapeHtml(emp.name)}</b>...`;
+  determineKioskModeAndOpen(emp.id, emp.name);
+}
+
+async function determineKioskModeAndOpen(empId, empName){
+  const statusEl = document.getElementById('kioskStatusMsg');
+  const todayStr = new Date().toISOString().slice(0,10);
+  try{
+    const snap = await db.collection('attendance').where('employeeId','==',empId).where('date','==',todayStr).get();
+    let mode = 'in';
+    if(!snap.empty){
+      const doc = snap.docs[0];
+      if(doc.data().checkOutTime){
+        statusEl.innerHTML = `<span style="color:var(--amber);">تم تسجيل حضور وانصراف <b>${escapeHtml(empName)}</b> اليوم بالفعل ✔</span>`;
+        return;
+      }
+      mode = 'out';
+    }
+    statusEl.innerHTML = '';
+    openAttendanceCameraModal(mode, empId);
+  }catch(err){
+    statusEl.innerHTML = '<span style="color:var(--red);">تعذر التحقق من سجل اليوم، حاول تاني</span>';
+  }
+}
+
+async function openAttendanceCameraModal(mode, employeeId){
+  attendanceTargetEmployeeId = employeeId || document.getElementById('attendanceEmployeeSelect').value;
+  if(!attendanceTargetEmployeeId){ showToast('اختر الموظف أولاً'); return; }
   attendanceMode = mode;
   attendanceCapturedDataUrl = null;
+  attendanceGeo = null;
 
   document.getElementById('attendanceCameraTitle').textContent = mode === 'in' ? 'تسجيل حضور' : 'تسجيل انصراف';
   document.getElementById('attendanceStatusMsg').textContent = 'جاري تشغيل الكاميرا...';
+  document.getElementById('attendanceLocationMsg').textContent = '📍 جاري تحديد موقعك...';
+  document.getElementById('attendanceLocationMsg').style.color = 'var(--muted)';
   document.getElementById('attendanceVideo').style.display = 'block';
   document.getElementById('attendanceCapturedImg').style.display = 'none';
   document.getElementById('attendanceCaptureBtn').style.display = 'inline-block';
   document.getElementById('attendanceRetakeBtn').style.display = 'none';
   document.getElementById('attendanceConfirmBtn').style.display = 'none';
   document.getElementById('attendanceCameraModalOverlay').classList.add('open');
+
+  captureAttendanceLocation();
 
   try{
     attendanceStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
@@ -3770,6 +3954,39 @@ async function openAttendanceCameraModal(mode){
   }catch(err){
     document.getElementById('attendanceStatusMsg').textContent = 'تعذر تشغيل الكاميرا: ' + err.message + ' — تأكد من السماح للمتصفح بالوصول للكاميرا';
   }
+}
+
+/* بتحدد موقع الجهاز الحالي وتقارنه بموقع الشركة المسجّل في الإعدادات (لو موجود).
+   لو الشركة مسجّلاش موقعها، بيعدّي التسجيل عادي من غير أي تحقق جغرافي. */
+function captureAttendanceLocation(){
+  const msgEl = document.getElementById('attendanceLocationMsg');
+  if(!navigator.geolocation){
+    msgEl.textContent = '⚠️ الجهاز ده مش بيدعم تحديد الموقع';
+    msgEl.style.color = 'var(--amber)';
+    attendanceGeo = { lat: null, lng: null, withinRadius: true, unsupported: true };
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    if(companySettingsCache.attendanceLat != null && companySettingsCache.attendanceLng != null){
+      const distance = Math.round(distanceMeters(lat, lng, companySettingsCache.attendanceLat, companySettingsCache.attendanceLng));
+      const radius = companySettingsCache.attendanceRadius || 150;
+      const within = distance <= radius;
+      attendanceGeo = { lat, lng, distance, withinRadius: within };
+      msgEl.textContent = within
+        ? `✅ تم التأكد إنك داخل نطاق الشركة (${distance} متر)`
+        : `❌ إنت بره نطاق الشركة المسموح — بعيد ${distance} متر (المسموح ${radius} متر)`;
+      msgEl.style.color = within ? 'var(--green)' : 'var(--red)';
+    }else{
+      attendanceGeo = { lat, lng, distance: null, withinRadius: true, notConfigured: true };
+      msgEl.textContent = '📍 تم تحديد موقعك (موقع الشركة لسه مش متحدد في الإعدادات)';
+      msgEl.style.color = 'var(--muted)';
+    }
+  }, err => {
+    attendanceGeo = { lat: null, lng: null, withinRadius: false, error: err.message };
+    msgEl.textContent = '⚠️ تعذر تحديد موقعك: ' + err.message + ' — لازم تسمح للمتصفح بالوصول للموقع';
+    msgEl.style.color = 'var(--red)';
+  }, { enableHighAccuracy: true, timeout: 15000 });
 }
 
 function stopAttendanceCamera(){
@@ -3782,6 +3999,11 @@ function stopAttendanceCamera(){
 function closeAttendanceCameraModal(){
   stopAttendanceCamera();
   document.getElementById('attendanceCameraModalOverlay').classList.remove('open');
+  // رجّع المستخدم لصفحة الكشك جاهزة لموظف تاني لو كنا جايين منها
+  if(currentPage === 'kiosk'){
+    document.getElementById('kioskCodeInput').value = '';
+    setTimeout(() => document.getElementById('kioskCodeInput').focus(), 200);
+  }
 }
 
 function captureAttendancePhoto(){
@@ -3821,12 +4043,24 @@ async function retakeAttendancePhoto(){
 
 async function confirmAttendance(){
   if(!attendanceCapturedDataUrl){ showToast('التقط الصورة أولاً'); return; }
-  const empId = document.getElementById('attendanceEmployeeSelect').value;
-  const emp = allEmployees.find(e => e.id === empId);
+  const empId = attendanceTargetEmployeeId;
+  // الاسم والمواعيد المتوقعة: من الدليل المصغّر لو متاح (الكشك)، وإلا من قائمة الموظفين الكاملة (HR)
+  const dirEmp = allAttendanceDirectory.find(x => x.id === empId);
+  const fullEmp = allEmployees.find(x => x.id === empId);
+  const emp = dirEmp || fullEmp;
   if(!emp) return;
+
+  // لازم يكون الموظف داخل نطاق الشركة (لو الموقع محدد في الإعدادات ونجح تحديد موقع الجهاز)
+  if(attendanceGeo && attendanceGeo.withinRadius === false){
+    showToast(attendanceGeo.error ? 'تعذر التحقق من موقعك، حاول تاني' : 'إنت بره نطاق الشركة المسموح — التسجيل مرفوض');
+    return;
+  }
 
   const now = new Date();
   const todayStr = now.toISOString().slice(0,10);
+  const locationPayload = attendanceGeo && attendanceGeo.lat != null
+    ? { lat: attendanceGeo.lat, lng: attendanceGeo.lng, distanceFromCompany: attendanceGeo.distance }
+    : null;
 
   try{
     if(attendanceMode === 'in'){
@@ -3846,8 +4080,9 @@ async function confirmAttendance(){
         employeeId: empId, employeeName: emp.name, date: todayStr,
         checkInTime: firebase.firestore.FieldValue.serverTimestamp(),
         checkInPhoto: attendanceCapturedDataUrl,
-        checkOutTime: null, checkOutPhoto: null,
-        lateMinutes,
+        checkInLocation: locationPayload,
+        checkOutTime: null, checkOutPhoto: null, checkOutLocation: null,
+        lateMinutes, earlyMinutes: 0,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
       await logAction('hr', 'تسجيل حضور', emp.name + (lateMinutes > 0 ? ` (متأخر ${lateMinutes} دقيقة)` : ''));
@@ -3865,12 +4100,19 @@ async function confirmAttendance(){
         closeAttendanceCameraModal();
         return;
       }
+      // حساب دقائق الانصراف المبكر مقارنة بموعد الانصراف المتوقع
+      const [expH, expM] = (emp.expectedEndTime || '17:00').split(':').map(Number);
+      const expectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), expH, expM, 0);
+      const earlyMinutes = Math.max(0, Math.round((expectedDate - now) / 60000));
+
       await db.collection('attendance').doc(doc.id).update({
         checkOutTime: firebase.firestore.FieldValue.serverTimestamp(),
         checkOutPhoto: attendanceCapturedDataUrl,
+        checkOutLocation: locationPayload,
+        earlyMinutes,
       });
-      await logAction('hr', 'تسجيل انصراف', emp.name);
-      showToast('تم تسجيل الانصراف');
+      await logAction('hr', 'تسجيل انصراف', emp.name + (earlyMinutes > 0 ? ` (انصراف مبكر ${earlyMinutes} دقيقة)` : ''));
+      showToast(earlyMinutes > 0 ? `تم تسجيل الانصراف — مبكر ${earlyMinutes} دقيقة` : 'تم تسجيل الانصراف');
     }
     closeAttendanceCameraModal();
     renderAttendanceTable();
@@ -3883,7 +4125,7 @@ async function renderAttendanceTable(){
   const tbody = document.getElementById('attendanceTableBody');
   if(!tbody) return;
   const dateStr = document.getElementById('attendanceDateFilter').value || new Date().toISOString().slice(0,10);
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--muted);">جاري التحميل...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--muted);">جاري التحميل...</td></tr>';
 
   try{
     const snap = await db.collection('attendance').where('date','==',dateStr).get();
@@ -3891,7 +4133,7 @@ async function renderAttendanceTable(){
     rows.sort((a,b) => (a.employeeName||'').localeCompare(b.employeeName||''));
 
     if(!rows.length){
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--muted);">لا توجد سجلات حضور لهذا اليوم</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--muted);">لا توجد سجلات حضور لهذا اليوم</td></tr>';
       return;
     }
 
@@ -3899,19 +4141,97 @@ async function renderAttendanceTable(){
       const inTime = r.checkInTime && r.checkInTime.toDate ? r.checkInTime.toDate().toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' }) : '—';
       const outTime = r.checkOutTime && r.checkOutTime.toDate ? r.checkOutTime.toDate().toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' }) : '—';
       const lateLabel = r.lateMinutes > 0 ? `<span style="color:var(--red);">${r.lateMinutes} دقيقة</span>` : '<span style="color:var(--green);">في الموعد</span>';
+      const earlyLabel = !r.checkOutTime ? '—' : (r.earlyMinutes > 0 ? `<span style="color:var(--amber);">${r.earlyMinutes} دقيقة</span>` : '<span style="color:var(--green);">في الموعد</span>');
       const statusLabel = !r.checkOutTime ? '<span class="badge warn">لم ينصرف بعد</span>' : '<span class="badge ok">اكتمل اليوم</span>';
       return `<tr>
         <td><b>${escapeHtml(r.employeeName)}</b></td>
         <td>${inTime}</td>
         <td>${outTime}</td>
         <td>${lateLabel}</td>
+        <td>${earlyLabel}</td>
         <td>${statusLabel}</td>
         <td>${r.checkInPhoto ? `<span class="btn-icon" onclick="viewAttendancePhoto('${r.id}')">🖼️</span>` : ''}</td>
       </tr>`;
     }).join('');
   }catch(err){
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--red);">تعذر تحميل سجلات الحضور: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--red);">تعذر تحميل سجلات الحضور: ${escapeHtml(err.message)}</td></tr>`;
   }
+}
+
+let lastAttendanceMonthlyReport = null;
+
+/* بيحسب لكل موظف نشط: أيام الحضور الفعلية، أيام الغياب (أيام الشهر عدا الجمعة ناقص أيام الحضور)،
+   وإجمالي دقائق التأخير والانصراف المبكر خلال الشهر المختار بالكامل */
+async function renderAttendanceMonthlyReport(){
+  const monthStr = document.getElementById('attendanceReportMonth').value || new Date().toISOString().slice(0,7);
+  const tbody = document.getElementById('attendanceMonthlyReportBody');
+  const emptyEl = document.getElementById('attendanceMonthlyReportEmpty');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--muted);">جاري الحساب...</td></tr>';
+  emptyEl.style.display = 'none';
+
+  const [y, m] = monthStr.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const periodStart = monthStr + '-01';
+  const periodEnd = monthStr + '-' + String(daysInMonth).padStart(2,'0');
+
+  // عدد أيام العمل في الشهر (كل الأيام عدا الجمعة، بنفس منطق حساب الرواتب)
+  let workingDays = 0;
+  for(let d = 1; d <= daysInMonth; d++){
+    if(new Date(y, m-1, d).getDay() !== 5) workingDays++;
+  }
+
+  const activeEmployees = allEmployees.filter(e => e.status !== 'inactive');
+  if(!activeEmployees.length){
+    tbody.innerHTML = '';
+    emptyEl.textContent = 'لا يوجد موظفون لعرض تقريرهم';
+    emptyEl.style.display = 'block';
+    return;
+  }
+
+  const results = [];
+  for(const emp of activeEmployees){
+    const snap = await db.collection('attendance')
+      .where('employeeId','==', emp.id)
+      .where('date','>=', periodStart)
+      .where('date','<=', periodEnd)
+      .get();
+    const daysPresent = snap.size;
+    const totalLateMinutes = snap.docs.reduce((sum, d) => sum + (d.data().lateMinutes || 0), 0);
+    const totalEarlyMinutes = snap.docs.reduce((sum, d) => sum + (d.data().earlyMinutes || 0), 0);
+    const daysAbsent = Math.max(0, workingDays - daysPresent);
+    results.push({ name: emp.name, daysPresent, daysAbsent, totalLateMinutes, totalEarlyMinutes });
+  }
+  results.sort((a,b) => a.name.localeCompare(b.name));
+  lastAttendanceMonthlyReport = { monthStr, workingDays, results };
+
+  tbody.innerHTML = results.map(r => `
+    <tr>
+      <td><b>${escapeHtml(r.name)}</b></td>
+      <td>${r.daysPresent} / ${workingDays}</td>
+      <td style="${r.daysAbsent > 0 ? 'color:var(--red);' : ''}">${r.daysAbsent}</td>
+      <td style="${r.totalLateMinutes > 0 ? 'color:var(--amber);' : ''}">${r.totalLateMinutes}</td>
+      <td style="${r.totalEarlyMinutes > 0 ? 'color:var(--amber);' : ''}">${r.totalEarlyMinutes}</td>
+    </tr>`).join('');
+}
+
+function printAttendanceMonthlyReport(){
+  if(!lastAttendanceMonthlyReport){ showToast('اضغط "عرض التقرير" أولاً'); return; }
+  const { monthStr, workingDays, results } = lastAttendanceMonthlyReport;
+  const rowsHtml = results.map(r => `
+    <tr>
+      <td>${escapeHtml(r.name)}</td><td>${r.daysPresent} / ${workingDays}</td>
+      <td>${r.daysAbsent}</td><td>${r.totalLateMinutes}</td><td>${r.totalEarlyMinutes}</td>
+    </tr>`).join('');
+
+  document.getElementById('printArea').innerHTML = `
+    ${printLogoHeaderHtml()}
+    <h2>التقرير الشهري للحضور والانصراف — ${escapeHtml(monthStr)}</h2>
+    <table>
+      <thead><tr><th>الموظف</th><th>أيام حضور</th><th>أيام غياب</th><th>إجمالي دقائق التأخير</th><th>إجمالي دقائق الانصراف المبكر</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
+  triggerPrint();
 }
 
 async function viewAttendancePhoto(attendanceId){
@@ -3919,8 +4239,15 @@ async function viewAttendancePhoto(attendanceId){
   if(!doc.exists) return;
   const d = doc.data();
   document.getElementById('statementTitle').textContent = 'صورة الحضور — ' + d.employeeName;
-  let html = `<img src="${d.checkInPhoto}" style="width:100%; border-radius:10px; margin-bottom:10px;">`;
+  let locHtml = '';
+  if(d.checkInLocation && d.checkInLocation.distanceFromCompany != null){
+    locHtml += `<div style="font-size:12px; color:var(--muted); margin-bottom:6px;">📍 الحضور: على بعد ${d.checkInLocation.distanceFromCompany} متر من الشركة</div>`;
+  }
+  let html = locHtml + `<img src="${d.checkInPhoto}" style="width:100%; border-radius:10px; margin-bottom:10px;">`;
   if(d.checkOutPhoto){
+    if(d.checkOutLocation && d.checkOutLocation.distanceFromCompany != null){
+      html += `<div style="font-size:12px; color:var(--muted); margin-bottom:6px;">📍 الانصراف: على بعد ${d.checkOutLocation.distanceFromCompany} متر من الشركة</div>`;
+    }
     html += `<div style="font-size:12px; color:var(--muted); margin-bottom:6px;">صورة الانصراف:</div><img src="${d.checkOutPhoto}" style="width:100%; border-radius:10px;">`;
   }
   document.getElementById('statementBody').innerHTML = html;
@@ -4103,11 +4430,13 @@ async function calculatePayroll(){
 
     const daysPresent = snap.size;
     const totalLateMinutes = snap.docs.reduce((sum, d) => sum + (d.data().lateMinutes || 0), 0);
+    const totalEarlyMinutes = snap.docs.reduce((sum, d) => sum + (d.data().earlyMinutes || 0), 0);
     const daysAbsent = Math.max(0, workingDays - daysPresent);
 
     const dailyRate = workingDays > 0 ? emp.monthlySalary / workingDays : 0;
     const absenceDeduction = daysAbsent * dailyRate;
     const lateDeduction = (totalLateMinutes / (8 * 60)) * dailyRate;
+    const earlyDeduction = (totalEarlyMinutes / (8 * 60)) * dailyRate;
 
     // الرصيد المتبقي من السلف المفتوحة — للعرض فقط كتذكير، مش بيتحسب تلقائي في الصافي
     const empAdvances = allAdvances.filter(a => a.employeeId === emp.id && a.remainingBalance > 0);
@@ -4118,8 +4447,8 @@ async function calculatePayroll(){
     results.push({
       employeeId: emp.id, name: emp.name, monthlySalary: emp.monthlySalary, payFrequency: frequency,
       workingDays, daysPresent, daysAbsent,
-      totalLateMinutes, absenceDeduction, lateDeduction, advanceDeduction, openAdvanceBalance,
-      netSalary: Math.max(0, emp.monthlySalary - absenceDeduction - lateDeduction - advanceDeduction),
+      totalLateMinutes, totalEarlyMinutes, absenceDeduction, lateDeduction, earlyDeduction, advanceDeduction, openAdvanceBalance,
+      netSalary: Math.max(0, emp.monthlySalary - absenceDeduction - lateDeduction - earlyDeduction - advanceDeduction),
     });
   }
 
@@ -4133,7 +4462,7 @@ function updatePayrollAdvanceDeduction(idx, val){
   const r = lastPayrollResults[idx];
   if(!r) return;
   r.advanceDeduction = Math.max(0, parseFloat(val) || 0);
-  r.netSalary = Math.max(0, r.monthlySalary - r.absenceDeduction - r.lateDeduction - r.advanceDeduction);
+  r.netSalary = Math.max(0, r.monthlySalary - r.absenceDeduction - r.lateDeduction - (r.earlyDeduction || 0) - r.advanceDeduction);
   renderPayrollTable(lastPayrollResults);
 }
 
@@ -4148,14 +4477,16 @@ function renderPayrollTable(results){
       <td>${r.daysPresent}</td>
       <td style="${r.daysAbsent > 0 ? 'color:var(--red);' : ''}">${r.daysAbsent}</td>
       <td style="${r.totalLateMinutes > 0 ? 'color:var(--amber);' : ''}">${r.totalLateMinutes}</td>
+      <td style="${(r.totalEarlyMinutes||0) > 0 ? 'color:var(--amber);' : ''}">${r.totalEarlyMinutes || 0}</td>
       <td>${fmt(r.absenceDeduction)}</td>
       <td>${fmt(r.lateDeduction)}</td>
+      <td>${fmt(r.earlyDeduction || 0)}</td>
       <td>
         <input type="number" min="0" step="0.01" value="${r.advanceDeduction}" style="width:90px;" onchange="updatePayrollAdvanceDeduction(${idx}, this.value)">
         ${r.openAdvanceBalance > 0 ? `<div style="font-size:11px; color:var(--muted); margin-top:3px;">متبقي سلف: ${fmt(r.openAdvanceBalance)}</div>` : ''}
       </td>
       <td><b>${fmt(r.netSalary)} ج</b></td>
-    </tr>`).join('') || '<tr><td colspan="10" style="text-align:center; color:var(--muted);">اضغط "احسب الرواتب" لعرض النتائج</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="12" style="text-align:center; color:var(--muted);">اضغط "احسب الرواتب" لعرض النتائج</td></tr>';
 
   const totalNet = results.reduce((s,r) => s + r.netSalary, 0);
   const totalLabel = document.getElementById('payrollTotalNetLabel');
@@ -4229,15 +4560,15 @@ function printPayrollReport(){
   const rowsHtml = lastPayrollResults.map(r => `
     <tr>
       <td>${escapeHtml(r.name)}</td><td>${fmt(r.monthlySalary)}</td><td>${r.daysPresent}/${r.workingDays}</td>
-      <td>${r.daysAbsent}</td><td>${r.totalLateMinutes}</td>
-      <td>${fmt(r.absenceDeduction)}</td><td>${fmt(r.lateDeduction)}</td><td>${fmt(r.advanceDeduction)}</td><td><b>${fmt(r.netSalary)}</b></td>
+      <td>${r.daysAbsent}</td><td>${r.totalLateMinutes}</td><td>${r.totalEarlyMinutes || 0}</td>
+      <td>${fmt(r.absenceDeduction)}</td><td>${fmt(r.lateDeduction)}</td><td>${fmt(r.earlyDeduction || 0)}</td><td>${fmt(r.advanceDeduction)}</td><td><b>${fmt(r.netSalary)}</b></td>
     </tr>`).join('');
 
   document.getElementById('printArea').innerHTML = `
     ${printLogoHeaderHtml()}
     <h2>كشف رواتب ${escapeHtml(lastPayrollMeta ? lastPayrollMeta.periodLabel : '')}</h2>
     <table>
-      <thead><tr><th>الموظف</th><th>الراتب الأساسي</th><th>الحضور</th><th>أيام الغياب</th><th>دقائق التأخير</th><th>خصم الغياب</th><th>خصم التأخير</th><th>خصم السلف</th><th>صافي الراتب</th></tr></thead>
+      <thead><tr><th>الموظف</th><th>الراتب الأساسي</th><th>الحضور</th><th>أيام الغياب</th><th>دقائق التأخير</th><th>دقائق الانصراف المبكر</th><th>خصم الغياب</th><th>خصم التأخير</th><th>خصم الانصراف المبكر</th><th>خصم السلف</th><th>صافي الراتب</th></tr></thead>
       <tbody>${rowsHtml}</tbody>
     </table>
     <h3 style="margin-top:14px;">إجمالي صافي الرواتب: ${fmt(totalNet)} جنيه</h3>
@@ -4246,7 +4577,7 @@ function printPayrollReport(){
 }
 
 /* ---------- Settings page ---------- */
-let companySettingsCache = { autoApprovalLimit: 0, maxDiscountAmount: 0, purchaseAutoApprovalLimit: 0 };
+let companySettingsCache = { autoApprovalLimit: 0, maxDiscountAmount: 0, purchaseAutoApprovalLimit: 0, attendanceLat: null, attendanceLng: null, attendanceRadius: 0 };
 
 async function saveCompany(){
   const name = document.getElementById('companyName').value.trim();
@@ -4262,6 +4593,32 @@ async function saveCompany(){
   renderCartTable();
 }
 
+function useCurrentLocationForCompany(){
+  const statusEl = document.getElementById('attendanceLocationStatus');
+  statusEl.textContent = 'جاري تحديد موقعك الحالي...';
+  if(!navigator.geolocation){ statusEl.textContent = 'المتصفح ده مش بيدعم تحديد الموقع'; return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    document.getElementById('attendanceLat').value = pos.coords.latitude.toFixed(6);
+    document.getElementById('attendanceLng').value = pos.coords.longitude.toFixed(6);
+    statusEl.textContent = `تم تحديد موقعك (دقة ~${Math.round(pos.coords.accuracy)} متر) — راجع النطاق واضغط "حفظ موقع الشركة"`;
+  }, err => {
+    statusEl.textContent = 'تعذر تحديد الموقع: ' + err.message + ' — تأكد من السماح للمتصفح بالوصول للموقع';
+  }, { enableHighAccuracy: true, timeout: 15000 });
+}
+
+async function saveAttendanceLocation(){
+  const lat = parseFloat(document.getElementById('attendanceLat').value);
+  const lng = parseFloat(document.getElementById('attendanceLng').value);
+  const radius = parseFloat(document.getElementById('attendanceRadius').value) || 150;
+  if(isNaN(lat) || isNaN(lng)){ showToast('حدد خط العرض والطول أولاً (دوس "استخدم موقعي الحالي" وأنت واقف في الشركة)'); return; }
+  await db.collection('settings').doc('company').set({ attendanceLat: lat, attendanceLng: lng, attendanceRadius: radius }, { merge: true });
+  companySettingsCache.attendanceLat = lat;
+  companySettingsCache.attendanceLng = lng;
+  companySettingsCache.attendanceRadius = radius;
+  document.getElementById('attendanceLocationStatus').innerHTML = '<span style="color:var(--green);">✅ تم حفظ موقع الشركة، وهيتم تفعيل التحقق الجغرافي من الآن.</span>';
+  await logAction('settings', 'تحديث موقع الشركة للحضور', `نطاق ${radius} متر`);
+}
+
 async function loadCompany(){
   const doc = await db.collection('settings').doc('company').get();
   if(doc.exists){
@@ -4274,6 +4631,14 @@ async function loadCompany(){
     companySettingsCache.autoApprovalLimit = d.autoApprovalLimit || 0;
     companySettingsCache.maxDiscountAmount = d.maxDiscountAmount || 0;
     companySettingsCache.purchaseAutoApprovalLimit = d.purchaseAutoApprovalLimit || 0;
+    companySettingsCache.attendanceLat = typeof d.attendanceLat === 'number' ? d.attendanceLat : null;
+    companySettingsCache.attendanceLng = typeof d.attendanceLng === 'number' ? d.attendanceLng : null;
+    companySettingsCache.attendanceRadius = d.attendanceRadius || 150;
+    if(document.getElementById('attendanceLat')){
+      document.getElementById('attendanceLat').value = companySettingsCache.attendanceLat != null ? companySettingsCache.attendanceLat : '';
+      document.getElementById('attendanceLng').value = companySettingsCache.attendanceLng != null ? companySettingsCache.attendanceLng : '';
+      document.getElementById('attendanceRadius').value = companySettingsCache.attendanceRadius || 150;
+    }
   }
 }
 
@@ -12185,7 +12550,7 @@ function moduleAccessSummary(permissions, key){
 function applyPermissionsToNav(){
   document.querySelectorAll('.nav-item[data-page]').forEach(el => {
     const page = el.dataset.page;
-    if(page === 'dashboard' || page === 'tasks') return;
+    if(page === 'dashboard' || page === 'tasks' || page === 'kiosk') return;
     if(page === 'settings' || page === 'approvals'){
       el.style.display = (currentUser.role === 'admin') ? 'flex' : 'none';
       return;
