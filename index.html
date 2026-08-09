@@ -1257,6 +1257,9 @@
             <div class="tab-btn" data-taskstab="all" id="allTasksTabBtn" style="display:none;" onclick="switchTasksTab('all')">
               كل المهام <span class="nav-badge" id="tasksAwaitingBadge" style="display:none;">0</span>
             </div>
+            <div class="tab-btn" data-taskstab="reminders" id="remindersTabBtn" style="display:none;" onclick="switchTasksTab('reminders')">
+              🔔 تذكيرات الموظفين <span class="nav-badge" id="remindersUnreadBadge" style="display:none;">0</span>
+            </div>
           </div>
 
           <!-- مهامي -->
@@ -1270,6 +1273,7 @@
                 <option value="all">كل مهامي</option>
               </select>
               <div class="grow"></div>
+              <button class="btn btn-ghost" id="sendReminderBtn" style="width:auto; display:none;" onclick="openReminderModal()">🔔 إرسال تذكير للمدير</button>
             </div>
             <div id="myTasksList"></div>
           </div>
@@ -1295,6 +1299,37 @@
                 </tr></thead>
                 <tbody id="allTasksTableBody"></tbody>
               </table>
+            </div>
+          </div>
+
+          <!-- تذكيرات الموظفين (مدير/صاحب صلاحية) -->
+          <div id="taskstab-reminders" style="display:none;">
+            <div class="toolbar">
+              <select id="remindersFilter" onchange="renderRemindersList()">
+                <option value="unread">غير مقروءة</option>
+                <option value="all">كل التذكيرات</option>
+              </select>
+              <div class="grow"></div>
+            </div>
+            <div id="remindersList"></div>
+          </div>
+        </div>
+
+        <!-- ===== SEND REMINDER MODAL (تذكير للمدير) ===== -->
+        <div class="modal-overlay" id="reminderModalOverlay">
+          <div class="modal-box" style="max-width:440px;">
+            <div class="modal-head"><h3>🔔 إرسال تذكير للمدير</h3><span class="modal-close" onclick="closeReminderModal()">✕</span></div>
+            <div class="field">
+              <label>مرتبط بمهمة (اختياري)</label>
+              <select id="reminderTaskId"><option value="">بدون — تذكير عام</option></select>
+            </div>
+            <div class="field">
+              <label>نص التذكير *</label>
+              <textarea id="reminderMessage" rows="4" placeholder="مثال: محتاج توقيعك على إذن الصرف عشان أقدر أكمّل المهمة"></textarea>
+            </div>
+            <div class="modal-actions">
+              <button class="btn btn-ghost" onclick="closeReminderModal()">إلغاء</button>
+              <button class="btn btn-primary" onclick="sendReminderToManager(this)">إرسال</button>
             </div>
           </div>
         </div>
@@ -3069,6 +3104,7 @@ auth.onAuthStateChanged(async (user) => {
     if(currentUser.role === 'admin') startPendingApprovalsBadgeListener();
     startChecksDueBadgeListener();
     startTasksBadgeListener();
+    startRemindersBadgeListener();
   }else{
     if(currentUser) logAction('auth', 'تسجيل خروج', currentUser.name || currentUser.email);
     currentUser = null;
@@ -13209,9 +13245,14 @@ function canManageTasks(){ return isAdminUser() || hasPermission('tasks','edit')
 
 function loadTasksPage(){
   const allTabBtn = document.getElementById('allTasksTabBtn');
+  const remindersTabBtn = document.getElementById('remindersTabBtn');
+  const sendBtn = document.getElementById('sendReminderBtn');
   if(allTabBtn) allTabBtn.style.display = canManageTasks() ? 'flex' : 'none';
+  if(remindersTabBtn) remindersTabBtn.style.display = canManageTasks() ? 'flex' : 'none';
+  if(sendBtn) sendBtn.style.display = canManageTasks() ? 'none' : 'inline-block';
   if(!canManageTasks()) switchTasksTab('mine');
   ensureTasksLoaded();
+  ensureRemindersLoaded();
   fillTaskAssigneeOptions();
 }
 
@@ -13227,10 +13268,12 @@ function ensureTasksLoaded(){
 }
 
 function switchTasksTab(tab){
-  if(tab === 'all' && !canManageTasks()) return;
+  if((tab === 'all' || tab === 'reminders') && !canManageTasks()) return;
   document.querySelectorAll('.tab-btn[data-taskstab]').forEach(el => el.classList.toggle('active', el.dataset.taskstab === tab));
   document.getElementById('taskstab-mine').style.display = tab === 'mine' ? 'block' : 'none';
   document.getElementById('taskstab-all').style.display = tab === 'all' ? 'block' : 'none';
+  document.getElementById('taskstab-reminders').style.display = tab === 'reminders' ? 'block' : 'none';
+  if(tab === 'reminders') renderRemindersList();
 }
 
 function taskPartyLabel(t){
@@ -13469,6 +13512,106 @@ function startTasksBadgeListener(){
     setNavBadge('tasksNavBadge', count);
     setNavBadge('dashTasksBadge', count);
   }, err => console.warn('تعذر تحميل عدد المهام', err));
+  unsubscribers.push(unsub);
+}
+
+/* =========================================================
+   تذكيرات الموظفين للمدير (داخل صفحة المهام اليومية)
+   وسيلة سريعة لأي موظف إنه يبعت رسالة/تذكير مباشر للمدير — إما عام، أو
+   مرتبط بمهمة معينة من مهامه (مثلاً: "محتاج توقيعك عشان أكمّل التاسك ده").
+   المدير بيشوفهم في تبويب "🔔 تذكيرات الموظفين" وعنده رقم بالتذكيرات
+   اللي لسه ما اطّلعش عليها، ويقدر يعلّمها "تم الاطلاع" بعد ما يتعامل معاها.
+   ========================================================= */
+let allReminders = [];
+let remindersListenerStarted = false;
+
+function ensureRemindersLoaded(){
+  if(remindersListenerStarted) return;
+  remindersListenerStarted = true;
+  db.collection('reminders').orderBy('createdAt','desc').limit(200).onSnapshot(snap => {
+    allReminders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderRemindersList();
+  }, err => console.warn('تعذر تحميل التذكيرات:', err));
+}
+
+function openReminderModal(){
+  const sel = document.getElementById('reminderTaskId');
+  const myOpenTasks = allTasks.filter(t => currentUser && t.assignedToId === currentUser.uid);
+  sel.innerHTML = '<option value="">بدون — تذكير عام</option>' +
+    myOpenTasks.map(t => `<option value="${t.id}">${TASK_TYPE_LABELS[t.type] || t.type} — ${escapeHtml((t.details || '').slice(0, 40))}</option>`).join('');
+  document.getElementById('reminderMessage').value = '';
+  document.getElementById('reminderModalOverlay').classList.add('open');
+}
+function closeReminderModal(){
+  document.getElementById('reminderModalOverlay').classList.remove('open');
+}
+
+async function sendReminderToManager(btn){
+  await withSaveGuard(btn, async () => {
+    const message = document.getElementById('reminderMessage').value.trim();
+    if(!message){ showToast('اكتب نص التذكير أولاً'); return; }
+    const taskId = document.getElementById('reminderTaskId').value || null;
+    const relatedTask = taskId ? allTasks.find(t => t.id === taskId) : null;
+
+    await db.collection('reminders').add({
+      fromUserId: currentUser.uid,
+      fromUserName: currentUser.name || currentUser.email,
+      message,
+      relatedTaskId: taskId,
+      relatedTaskLabel: relatedTask ? (TASK_TYPE_LABELS[relatedTask.type] || relatedTask.type) + ' — ' + (relatedTask.details || '') : null,
+      status: 'unread',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await logAction('tasks', 'إرسال تذكير للمدير', message);
+    showToast('تم إرسال التذكير للمدير');
+    closeReminderModal();
+  });
+}
+
+function renderRemindersList(){
+  const box = document.getElementById('remindersList');
+  if(!box) return;
+  const filterEl = document.getElementById('remindersFilter');
+  const filter = filterEl ? filterEl.value : 'unread';
+  const list = filter === 'unread' ? allReminders.filter(r => r.status !== 'read') : allReminders;
+
+  const unreadCount = allReminders.filter(r => r.status !== 'read').length;
+  setNavBadge('remindersUnreadBadge', unreadCount);
+
+  box.innerHTML = list.map(r => {
+    const dt = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate().toLocaleString('ar-EG', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
+    const unread = r.status !== 'read';
+    return `
+      <div class="alert-row" style="flex-direction:column; align-items:stretch; gap:6px; ${unread ? 'border-inline-start:3px solid var(--primary);' : 'opacity:.75;'}">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <b>${escapeHtml(r.fromUserName)}</b>
+          <span style="font-size:12px; color:var(--muted);">${dt}</span>
+        </div>
+        ${r.relatedTaskLabel ? `<div style="font-size:12px; color:var(--muted);">🔗 مرتبط بمهمة: ${escapeHtml(r.relatedTaskLabel)}</div>` : ''}
+        <div style="font-size:14px;">${escapeHtml(r.message)}</div>
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+          ${unread ? `<button class="btn btn-primary btn-sm" style="width:auto;" onclick="markReminderRead('${r.id}')">✅ تم الاطلاع</button>` : '<span style="font-size:12px; color:var(--muted);">تم الاطلاع ✔</span>'}
+        </div>
+      </div>`;
+  }).join('') || '<div class="empty-state">لا توجد تذكيرات حاليًا</div>';
+}
+
+async function markReminderRead(id){
+  await db.collection('reminders').doc(id).update({
+    status: 'read',
+    readAt: firebase.firestore.FieldValue.serverTimestamp(),
+    readBy: currentUser.name || currentUser.email,
+  });
+}
+
+let remindersBadgeListenerStarted = false;
+function startRemindersBadgeListener(){
+  if(remindersBadgeListenerStarted) return;
+  remindersBadgeListenerStarted = true;
+  const unsub = db.collection('reminders').where('status','==','unread').onSnapshot(snap => {
+    if(!canManageTasks()) return;
+    setNavBadge('remindersUnreadBadge', snap.size);
+  }, err => console.warn('تعذر تحميل عدد التذكيرات', err));
   unsubscribers.push(unsub);
 }
 </script>
