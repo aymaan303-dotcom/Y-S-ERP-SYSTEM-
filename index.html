@@ -844,6 +844,13 @@
                 <div class="field"><label>الرقم الضريبي</label><input type="text" id="companyTax" placeholder="الرقم الضريبي"></div>
               </div>
               <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:10px;">
+                <div class="field"><label>رقم التليفون / واتساب (للطباعة)</label><input type="text" id="companyPhone" placeholder="مثال: 01xxxxxxxxx"></div>
+                <div class="field"><label>العنوان (للطباعة)</label><input type="text" id="companyAddress" placeholder="مثال: العاشر من رمضان، مدينة السادات..."></div>
+              </div>
+              <div style="font-size:11px; color:var(--muted); margin-top:6px;">
+                💡 الرقم والعنوان دول هيظهروا في أعلى عروض الأسعار، الفواتير المبدئية، وكل المستندات المطبوعة. كود QR لموقع الشركة هياخد إحداثيات "موقع الشركة" المحددة تحت في قسم الحضور — لو مش محددة، مش هيظهر QR في الطباعة.
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:10px;">
                 <div class="field">
                   <label>حد الموافقة التلقائية للمبيعات (ج.م)</label>
                   <input type="number" id="autoApprovalLimit" placeholder="0.00" min="0">
@@ -3624,14 +3631,35 @@ document.addEventListener('click', (e) => {
   }
 });
 
-/* هيدر ثابت فيه شعار الشركة، بيتحط أعلى أي ورقة مطبوعة (فواتير، كشوف حساب، تقارير...) */
+/* هيدر ثابت فيه شعار الشركة وبيانات التواصل، بيتحط أعلى أي ورقة مطبوعة (فواتير، كشوف حساب، تقارير...) */
 function printLogoHeaderHtml(){
+  const name = companySettingsCache.name || 'YS STEEL — لتجارة الحديد';
+  const contactBits = [];
+  if(companySettingsCache.phone) contactBits.push('📞 ' + companySettingsCache.phone);
+  if(companySettingsCache.address) contactBits.push('📍 ' + companySettingsCache.address);
+  if(companySettingsCache.tax) contactBits.push('الرقم الضريبي: ' + companySettingsCache.tax);
+
+  let qrHtml = '';
+  if(companySettingsCache.attendanceLat != null && companySettingsCache.attendanceLng != null){
+    const mapsUrl = `https://www.google.com/maps?q=${companySettingsCache.attendanceLat},${companySettingsCache.attendanceLng}`;
+    const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(mapsUrl)}`;
+    qrHtml = `
+      <div style="text-align:center;">
+        <img src="${qrSrc}" style="width:74px; height:74px;">
+        <div style="font-size:9.5px; color:#555; margin-top:2px;">امسح لموقعنا 📍</div>
+      </div>`;
+  }
+
   return `
-    <div style="display:flex; align-items:center; gap:12px; border-bottom:2px solid #333; padding-bottom:10px; margin-bottom:14px;">
-      <img src="${COMPANY_LOGO_DATA_URI}" style="width:52px; height:52px; border-radius:8px; object-fit:cover;">
-      <div>
-        <div style="font-size:16px; font-weight:800;">YS STEEL — لتجارة الحديد</div>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:2px solid #333; padding-bottom:10px; margin-bottom:14px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <img src="${COMPANY_LOGO_DATA_URI}" style="width:52px; height:52px; border-radius:8px; object-fit:cover;">
+        <div>
+          <div style="font-size:16px; font-weight:800;">${escapeHtml(name)}</div>
+          ${contactBits.length ? `<div style="font-size:11px; color:#555; margin-top:2px;">${contactBits.map(escapeHtml).join(' &nbsp;|&nbsp; ')}</div>` : ''}
+        </div>
       </div>
+      ${qrHtml}
     </div>`;
 }
 
@@ -4667,15 +4695,21 @@ function printPayrollReport(){
 }
 
 /* ---------- Settings page ---------- */
-let companySettingsCache = { autoApprovalLimit: 0, maxDiscountAmount: 0, purchaseAutoApprovalLimit: 0, attendanceLat: null, attendanceLng: null, attendanceRadius: 0 };
+let companySettingsCache = { autoApprovalLimit: 0, maxDiscountAmount: 0, purchaseAutoApprovalLimit: 0, attendanceLat: null, attendanceLng: null, attendanceRadius: 0, name: '', phone: '', address: '', tax: '' };
 
 async function saveCompany(){
   const name = document.getElementById('companyName').value.trim();
   const tax = document.getElementById('companyTax').value.trim();
+  const phone = document.getElementById('companyPhone').value.trim();
+  const address = document.getElementById('companyAddress').value.trim();
   const autoApprovalLimit = parseFloat(document.getElementById('autoApprovalLimit').value) || 0;
   const maxDiscountAmount = parseFloat(document.getElementById('maxDiscountAmount').value) || 0;
   const purchaseAutoApprovalLimit = parseFloat(document.getElementById('purchaseAutoApprovalLimit').value) || 0;
-  await db.collection('settings').doc('company').set({ name, tax, autoApprovalLimit, maxDiscountAmount, purchaseAutoApprovalLimit }, { merge: true });
+  await db.collection('settings').doc('company').set({ name, tax, phone, address, autoApprovalLimit, maxDiscountAmount, purchaseAutoApprovalLimit }, { merge: true });
+  companySettingsCache.name = name;
+  companySettingsCache.tax = tax;
+  companySettingsCache.phone = phone;
+  companySettingsCache.address = address;
   companySettingsCache.autoApprovalLimit = autoApprovalLimit;
   companySettingsCache.maxDiscountAmount = maxDiscountAmount;
   companySettingsCache.purchaseAutoApprovalLimit = purchaseAutoApprovalLimit;
@@ -4715,9 +4749,15 @@ async function loadCompany(){
     const d = doc.data();
     document.getElementById('companyName').value = d.name || '';
     document.getElementById('companyTax').value = d.tax || '';
+    document.getElementById('companyPhone').value = d.phone || '';
+    document.getElementById('companyAddress').value = d.address || '';
     document.getElementById('autoApprovalLimit').value = d.autoApprovalLimit || 0;
     document.getElementById('maxDiscountAmount').value = d.maxDiscountAmount || 0;
     document.getElementById('purchaseAutoApprovalLimit').value = d.purchaseAutoApprovalLimit || 0;
+    companySettingsCache.name = d.name || '';
+    companySettingsCache.tax = d.tax || '';
+    companySettingsCache.phone = d.phone || '';
+    companySettingsCache.address = d.address || '';
     companySettingsCache.autoApprovalLimit = d.autoApprovalLimit || 0;
     companySettingsCache.maxDiscountAmount = d.maxDiscountAmount || 0;
     companySettingsCache.purchaseAutoApprovalLimit = d.purchaseAutoApprovalLimit || 0;
@@ -12402,6 +12442,7 @@ function renderQuotesTable(){
       <td>${fmt(r.total)}</td>
       <td>${r.status === 'converted' ? '<span class="badge ok">تم التحويل لفاتورة</span>' : '<span class="badge warn">مسودة</span>'}</td>
       <td style="display:flex; gap:6px;">
+        <span class="btn-icon" title="طباعة احترافية" onclick="printQuoteOrOrder('${r.id}','${r.docType}')">🖨️</span>
         ${r.status !== 'converted' ? `<span class="btn-icon" title="تحويل لفاتورة بيع" onclick="convertQuoteToInvoice('${r.id}','${r.docType}')">➡️</span>` : ''}
         <span class="btn-icon danger" title="حذف" onclick="deleteQuoteOrOrder('${r.id}','${r.docType}')">🗑</span>
       </td>
@@ -12413,6 +12454,65 @@ async function deleteQuoteOrOrder(id, docType){
   if(!confirm('حذف هذا المستند؟')) return;
   await db.collection(docType === 'quote' ? 'salesQuotes' : 'salesOrders').doc(id).delete();
   showToast('تم الحذف');
+}
+
+/* طباعة احترافية لعرض السعر أو أمر البيع (كفاتورة مبدئية) — بنفس هيدر الشركة
+   الموحّد (شعار + تليفون + عنوان + QR للموقع)، بالإضافة لتنسيق مخصص فيه صلاحية
+   العرض للأسعار، وملاحظة توضيحية إن أمر البيع مستند مبدئي غير ضريبي. */
+async function printQuoteOrOrder(id, docType){
+  const list = docType === 'quote' ? allSalesQuotes : allSalesOrdersDocs;
+  const doc = list.find(d => d.id === id);
+  if(!doc) return;
+
+  const isQuote = docType === 'quote';
+  const dt = doc.date && doc.date.toDate ? doc.date.toDate() : new Date();
+  const itemsHtml = (doc.items || []).map((it, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td>${escapeHtml(it.name)}</td>
+      <td>${escapeHtml(it.unit || '')}</td>
+      <td>${fmt(it.qty)}</td>
+      <td>${fmt(it.price)}</td>
+      <td>${fmt(it.qty * it.price)}</td>
+    </tr>`).join('');
+
+  document.getElementById('printArea').innerHTML = `
+    ${printLogoHeaderHtml()}
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
+      <div>
+        <h2 style="margin:0 0 4px;">${isQuote ? 'عرض سعر' : 'فاتورة مبدئية (أمر بيع)'}</h2>
+        <div style="font-size:12.5px; color:#444;">رقم: <b>#${doc.number}</b> &nbsp;|&nbsp; التاريخ: ${dt.toLocaleDateString('ar-EG-u-nu-latn')}</div>
+        ${isQuote && doc.validUntil ? `<div style="font-size:12.5px; color:#444;">صالح حتى: ${escapeHtml(doc.validUntil)}</div>` : ''}
+      </div>
+      <div style="text-align:left;">
+        <div style="font-size:12.5px; color:#444;">السادة/</div>
+        <div style="font-size:14px; font-weight:700;">${escapeHtml(doc.customerName || '')}</div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th>م</th><th>الصنف</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+      <tbody>${itemsHtml}</tbody>
+    </table>
+
+    <div style="margin-top:12px; max-width:320px; margin-inline-start:auto;">
+      <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:13px;"><span>الإجمالي قبل الخصم</span><b>${fmt(doc.subtotal)}</b></div>
+      ${doc.discount > 0 ? `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:13px;"><span>الخصم</span><b>${fmt(doc.discount)}</b></div>` : ''}
+      ${doc.vat > 0 ? `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:13px;"><span>ضريبة القيمة المضافة (${doc.vatRate}%)</span><b>${fmt(doc.vat)}</b></div>` : ''}
+      <div style="display:flex; justify-content:space-between; padding:8px 0; font-size:16px; font-weight:800; border-top:1.5px solid #333; margin-top:4px;"><span>الإجمالي النهائي</span><b>${fmt(doc.total)} ج.م</b></div>
+    </div>
+
+    <div style="margin-top:26px; font-size:11.5px; color:#555; border-top:1px solid #ccc; padding-top:10px;">
+      ${isQuote
+        ? 'ملحوظة: هذا عرض سعر مبدئي غير ملزم، والأسعار قابلة للتغيير بعد انتهاء مدة الصلاحية المذكورة أعلاه.'
+        : 'ملحوظة: هذا مستند مبدئي (أمر بيع) لأغراض المراجعة والتأكيد، وليس فاتورة ضريبية رسمية. سيتم إصدار الفاتورة الرسمية عند تأكيد الطلب.'}
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-top:36px; font-size:12.5px;">
+      <div>توقيع المسؤول: ______________</div>
+      <div>توقيع العميل: ______________</div>
+    </div>
+  `;
+  triggerPrint();
 }
 
 async function convertQuoteToInvoice(id, docType){
