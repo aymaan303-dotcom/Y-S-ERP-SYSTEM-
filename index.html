@@ -1765,6 +1765,11 @@
                   </select>
                 </div>
                 <div class="field" id="salePaymentAccountField"><label>تحصيل في</label><select id="salePaymentAccount"></select></div>
+                <div class="field" id="saleDueDaysField" style="display:none;">
+                  <label>تحصيل الفاتورة بعد كام يوم؟</label>
+                  <input type="number" id="saleDueDays" min="0" step="1" placeholder="مثال: 30" value="30">
+                  <small style="color:var(--muted); font-size:11px;">هيتحسب تاريخ الاستحقاق تلقائيًا، وهيوصلك تذكير في الجرس لما الميعاد يقرب أو يجي.</small>
+                </div>
 
                 <div class="summary-line"><span>الإجمالي الفرعي</span><b id="sumSubtotal">0.00</b></div>
                 <div class="summary-line"><span>الخصم</span>
@@ -3584,6 +3589,24 @@ function startDashboardListeners(){
     }, () => {})
   );
 
+  // فواتير بيع آجلة مستحقة التحصيل قريبًا (خلال 3 أيام) أو متأخرة ولسه ما اتحصّلتش
+  unsubscribers.push(
+    db.collection('salesInvoices').where('paymentType','==','credit').onSnapshot(snap => {
+      const todayStr = new Date().toISOString().slice(0,10);
+      const in3 = new Date(); in3.setDate(in3.getDate() + 3);
+      const in3Str = in3.toISOString().slice(0,10);
+      let dueList = [];
+      snap.forEach(doc => {
+        const d = doc.data();
+        if(d.collected || !d.dueDate || d.status !== 'confirmed') return;
+        if(scopeWarehouseId && d.warehouseId && d.warehouseId !== scopeWarehouseId) return;
+        if(d.dueDate <= in3Str) dueList.push({ id: doc.id, number: d.number, customerName: d.customerName, total: d.total, dueDate: d.dueDate });
+      });
+      dueList.sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+      updateAlerts({ invoicesDue: dueList });
+    }, () => {})
+  );
+
   // صافي الربح الشهري: بيتحسب من فواتير البيع والشراء مباشرة بنفس منطق (سعر البيع - سعر الشراء) × الكمية
   // لكل بند — بالظبط زي ما هو مطلوب، مش من قيود اليومية لوحدها. السبب: البنود اليدوية (بيع فوري
   // مرتبط بفاتورة شراء، زي صفقات الحديد اللي بتتباع فورًا وقت الشراء) مالهاش قيد تكلفة بضاعة تلقائي
@@ -3654,7 +3677,7 @@ async function recomputeMonthlyNetProfit(){
   }
 }
 
-let alertsState = { lowStock: [], checksDue: 0 };
+let alertsState = { lowStock: [], checksDue: 0, invoicesDue: [] };
 function updateAlerts(partial){
   alertsState = { ...alertsState, ...partial };
   const list = document.getElementById('alertsList');
@@ -3666,6 +3689,13 @@ function updateAlerts(partial){
   if(alertsState.checksDue > 0){
     rows.push(`<div class="alert-row"><span class="dot" style="background:var(--amber)"></span> يوجد <b>${alertsState.checksDue}</b> شيك مستحق خلال 7 أيام</div>`);
   }
+  alertsState.invoicesDue.forEach(inv => {
+    const isOverdue = inv.dueDate < new Date().toISOString().slice(0,10);
+    rows.push(`<div class="alert-row" style="cursor:pointer;" onclick="openDueInvoiceDetails('${inv.id}')">
+      <span class="dot" style="background:${isOverdue ? 'var(--red)' : 'var(--amber)'}"></span>
+      💰 ${isOverdue ? 'متأخرة عن التحصيل' : 'مستحقة قريبًا'}: فاتورة <b>#${inv.number}</b> — ${escapeHtml(inv.customerName)} (${fmt(inv.total)} ج) — ${isOverdue ? 'كانت مستحقة' : 'تستحق'} ${escapeHtml(inv.dueDate)}
+    </div>`);
+  });
 
   document.getElementById('kpiAlerts').textContent = rows.length;
   list.innerHTML = rows.length ? rows.join('') : '<div class="empty-state">لا توجد تنبيهات حاليًا 🎉</div>';
@@ -8105,6 +8135,7 @@ function fillSaleWarehouses(){
 function togglePaymentAccount(){
   const isCash = document.getElementById('salePaymentType').value === 'cash';
   document.getElementById('salePaymentAccountField').style.display = isCash ? 'block' : 'none';
+  document.getElementById('saleDueDaysField').style.display = isCash ? 'none' : 'block';
 }
 
 function updateCustomerBalanceHint(){
@@ -8452,6 +8483,13 @@ async function saveSalesInvoiceInner(){
     items: cart.map(c => ({ itemId:c.itemId, name:c.name, unit:c.unit, qty:c.qty, price:c.price, total: c.qty*c.price, returnedQty: 0, isManual: c.isManual || false, sellBy: c.sellBy || null, baseUnitType: c.baseUnitType || null, weight: c.weight != null ? c.weight : null, count: c.count != null ? c.count : null, pricePerWeight: c.pricePerWeight != null ? c.pricePerWeight : null })),
     subtotal: totals.subtotal, discount: totals.discountAmt, vat: totals.vatAmt, total: totals.grandTotal,
     paymentType, accountType, accountId,
+    dueDate: paymentType === 'credit' ? (() => {
+      const days = parseInt(document.getElementById('saleDueDays').value, 10) || 0;
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      return d.toISOString().slice(0,10);
+    })() : null,
+    collected: paymentType === 'cash',
     status: isAutoApprove ? 'confirmed' : 'pending_approval',
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
@@ -8496,6 +8534,7 @@ async function saveSalesInvoiceInner(){
   }
   cart = [];
   document.getElementById('saleDiscount').value = 0;
+  document.getElementById('saleDueDays').value = 30;
   document.getElementById('saleInvoiceNumberInput').value = '';
   renderCartTable();
   switchSTab('invoices');
@@ -8539,12 +8578,13 @@ function renderSalesInvoicesTable(){
       <td>${escapeHtml(inv.customerName)}</td>
       <td>${escapeHtml(inv.warehouseName || '—')}</td>
       <td>${fmt(inv.total)}</td>
-      <td>${inv.paymentType === 'cash' ? 'نقدي' : 'آجل'}</td>
+      <td>${inv.paymentType === 'cash' ? 'نقدي' : `آجل${inv.dueDate ? `<div style="font-size:11px; color:${!inv.collected && inv.dueDate < new Date().toISOString().slice(0,10) ? 'var(--red)' : 'var(--muted)'};">${inv.collected ? '✅ محصّلة' : '📅 ' + inv.dueDate}</div>` : ''}`}</td>
       <td>${statusMap[inv.status] || ''}</td>
       <td>
         <span class="btn-icon" title="تفاصيل الأصناف" onclick="toggleInvoiceRowDetails('sale-${inv.id}')">👁</span>
         <span class="btn-icon" title="طباعة" onclick="printInvoice('${inv.id}')">🖨</span>
         <span class="btn-icon" title="إرسال واتساب للعميل" onclick="sendInvoiceWhatsApp('${inv.id}')">📱</span>
+        ${inv.paymentType === 'credit' && !inv.collected ? `<span class="btn-icon" title="تعليم كمُحصّلة" onclick="markInvoiceCollected('${inv.id}')">✅</span>` : ''}
         ${invoiceActionIcons('sale', inv.id)}
       </td>
     </tr>
@@ -8635,6 +8675,57 @@ ${itemsLines}
 ${isQuote && doc.terms ? `\nالشروط والأحكام:\n${doc.terms}\n` : ''}
 في انتظار ردكم 🙏`;
   openWhatsAppMessage(customer ? customer.phone : '', message);
+}
+
+/* بتفتح لما تدوس على تذكير فاتورة مستحقة من جرس التنبيهات — بتوري كل بيانات
+   الفاتورة (العميل، الأصناف، الإجمالي، تاريخ الاستحقاق) وزرار لتعليمها "تم التحصيل"
+   عشان تختفي من التذكيرات. لو الفاتورة مش محمّلة أصلاً في allSalesInvoices (مثلاً
+   لسه ما فتحتش صفحة المبيعات)، بيجيبها مباشرة من قاعدة البيانات. */
+async function openDueInvoiceDetails(invId){
+  let inv = allSalesInvoices ? allSalesInvoices.find(i => i.id === invId) : null;
+  if(!inv){
+    const doc = await db.collection('salesInvoices').doc(invId).get();
+    if(!doc.exists){ showToast('الفاتورة غير موجودة (ربما تم حذفها)'); return; }
+    inv = { id: doc.id, ...doc.data() };
+  }
+  const isOverdue = inv.dueDate && inv.dueDate < new Date().toISOString().slice(0,10);
+  const itemsHtml = (inv.items || []).map(it => `
+    <div style="display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid var(--border); font-size:13px;">
+      <span>${escapeHtml(it.name)} × ${fmt(it.qty)} ${escapeHtml(it.unit || '')}</span>
+      <b>${fmt(it.qty * it.price)}</b>
+    </div>`).join('');
+
+  document.getElementById('statementTitle').textContent = `فاتورة بيع #${inv.number} — مستحقة التحصيل`;
+  document.getElementById('statementBody').innerHTML = `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:14px;"><b>العميل:</b> ${escapeHtml(inv.customerName)}</div>
+      <div style="font-size:13px; color:${isOverdue ? 'var(--red)' : 'var(--amber)'}; margin-top:4px;">
+        📅 تاريخ الاستحقاق: <b>${escapeHtml(inv.dueDate || '—')}</b> ${isOverdue ? '(متأخرة عن الميعاد)' : ''}
+      </div>
+    </div>
+    ${itemsHtml}
+    <div style="display:flex; justify-content:space-between; padding:10px 0 0; font-size:16px; font-weight:800;">
+      <span>الإجمالي المستحق</span><span>${fmt(inv.total)} ج.م</span>
+    </div>
+    <button class="btn btn-primary" style="width:100%; margin-top:16px;" onclick="markInvoiceCollected('${inv.id}')">✅ تم التحصيل</button>
+    <button class="btn btn-ghost" style="width:100%; margin-top:8px;" onclick="closeDueInvoiceAndOpenSales('${inv.id}')">فتح في صفحة المبيعات</button>
+  `;
+  document.getElementById('statementModalOverlay').classList.add('open');
+  document.getElementById('notifPanel')?.classList.remove('open');
+}
+
+async function markInvoiceCollected(invId){
+  await db.collection('salesInvoices').doc(invId).update({ collected: true, collectedAt: firebase.firestore.FieldValue.serverTimestamp() });
+  await logAction('sales', 'تحصيل فاتورة آجلة', invId);
+  showToast('تم تعليم الفاتورة كمُحصّلة');
+  document.getElementById('statementModalOverlay').classList.remove('open');
+}
+
+function closeDueInvoiceAndOpenSales(invId){
+  document.getElementById('statementModalOverlay').classList.remove('open');
+  goPage('sales');
+  switchSTab('invoices');
+  setTimeout(() => toggleInvoiceRowDetails('sale-' + invId), 300);
 }
 
 function printInvoice(invId){
