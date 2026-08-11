@@ -2745,8 +2745,12 @@
 <div class="modal-overlay" id="manualMfgModalOverlay">
   <div class="modal-box" style="max-width:480px;">
     <div class="modal-head"><h3>إضافة بند تصنيع يدوي (بدون خامات)</h3><span class="modal-close" onclick="closeManualMfgModal()">✕</span></div>
-    <div class="field"><label>اسم المنتج الناتج *</label><input type="text" id="manualMfgName" placeholder="مثال: مواسير مشغولة مقاس 2 بوصة"></div>
-    <div class="field"><label>الكمية *</label><input type="number" id="manualMfgQty" min="0.001" step="0.001" value="1" oninput="renderManualMfgSummary()"></div>
+    <div style="border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:12px;">
+      <label style="font-size:12.5px;">اسم المنتج الناتج *</label>
+      <input type="text" id="manualMfgName" placeholder="مثال: مواسير مشغولة مقاس 2 بوصة" style="width:100%; margin:6px 0; box-sizing:border-box;">
+      <label style="font-size:12.5px;">الكمية *</label>
+      <input type="number" id="manualMfgQty" min="0.001" step="0.001" value="1" style="width:100%; margin-top:6px; box-sizing:border-box;" oninput="renderManualMfgSummary()">
+    </div>
     <div class="field">
       <label>بنود التكلفة (ليزر، نقل، عمالة...) *</label>
       <div id="manualMfgCostRows"></div>
@@ -2765,8 +2769,12 @@
 <div class="modal-overlay" id="manualLineItemModalOverlay">
   <div class="modal-box" style="max-width:480px;">
     <div class="modal-head"><h3 id="manualLineItemTitle">إضافة بند</h3><span class="modal-close" onclick="closeManualLineItemModal()">✕</span></div>
-    <div class="field"><label>اسم البند *</label><input type="text" id="manualLineItemName" placeholder="مثال: مواسير مشغولة مقاس 2 بوصة"></div>
-    <div class="field"><label>الكمية *</label><input type="number" id="manualLineItemQty" min="0.001" step="0.001" value="1" oninput="renderManualLineItemSummary()"></div>
+    <div style="border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:12px;">
+      <label style="font-size:12.5px;">اسم البند *</label>
+      <input type="text" id="manualLineItemName" placeholder="مثال: مواسير مشغولة مقاس 2 بوصة" style="width:100%; margin:6px 0; box-sizing:border-box;">
+      <label style="font-size:12.5px;">الكمية *</label>
+      <input type="number" id="manualLineItemQty" min="0.001" step="0.001" value="1" style="width:100%; margin-top:6px; box-sizing:border-box;" oninput="renderManualLineItemSummary()">
+    </div>
 
     <!-- يظهر بس للبنود من نوع "تصنيع" — تفصيل بنود التكلفة زي ليزر/نقل/عمالة -->
     <div id="manualLineItemCostSection">
