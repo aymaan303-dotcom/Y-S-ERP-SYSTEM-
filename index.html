@@ -2786,7 +2786,7 @@
     <div class="modal-head"><h3 id="manualLineItemTitle">إضافة بند</h3><span class="modal-close" onclick="closeManualLineItemModal()">✕</span></div>
     <div style="border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:12px;">
       <label style="font-size:12.5px;">اسم البند *</label>
-      <input type="text" id="manualLineItemName" placeholder="مثال: مواسير مشغولة مقاس 2 بوصة" style="width:100%; margin:6px 0; box-sizing:border-box;">
+      <input type="text" id="manualLineItemName" placeholder="مثال: مواسير مشغولة مقاس 2 بوصة" style="width:100%; margin:6px 0; box-sizing:border-box; padding:14px 16px; border-radius:12px; background:var(--input-bg); border:1px solid var(--border); color:var(--text); font-family:'Cairo'; font-size:14px; outline:none;">
       <div class="form-row">
         <div class="field"><label style="font-size:12.5px;">الكمية *</label>
           <input type="number" id="manualLineItemQty" min="0.001" step="0.001" value="1" style="width:100%; box-sizing:border-box;" oninput="renderManualLineItemSummary()">
@@ -2806,7 +2806,7 @@
         <button type="button" class="btn btn-ghost btn-sm" style="width:auto; margin-top:6px;" onclick="addManualLineCostRow()">+ إضافة بند تكلفة</button>
       </div>
       <div class="summary-line"><span>إجمالي التكلفة</span><b id="manualLineItemTotalCost">0.00</b></div>
-      <div class="summary-line total"><span>سعر الوحدة (من بنود التكلفة)</span><b id="manualLineItemUnitCost">0.00</b></div>
+      <div class="summary-line total"><span>سعر الوحدة (بعد التكلفة)</span><b id="manualLineItemUnitCost">0.00</b></div>
     </div>
 
     <!-- يظهر بس للبند اليدوي العام (بضاعة عادية) — سعر مباشر من غير تفصيل تكلفة -->
@@ -8370,21 +8370,16 @@ function renderManualLineItemSummary(){
     document.getElementById('manualLineItemDirectTotal').textContent = fmt(qty * price);
     return { qty, price, totalCost: qty * price };
   }
-  // بند تصنيع: لو المستخدم ملى بنود تكلفة صحيحة، سعر الوحدة بيتحسب منها تلقائيًا ويعكسها
-  // في خانة "سعر الوحدة" فوق. لو مفيش بنود تكلفة، بياخد السعر من خانة "سعر الوحدة" مباشرة.
-  const validCostItems = manualLineCostItems.filter(it => it.label.trim() && (parseFloat(it.qty) || 0) > 0 && (parseFloat(it.price) || 0) > 0);
+  // بند تصنيع: خانة "سعر الوحدة" فوق هي سعر الخامة نفسها (بتتكتب يدوي)، وبنود التكلفة تحت
+  // (ليزر، نقل، عمالة...) هي تكلفة إضافية. السعر النهائي بعد التكلفة = سعر الخامة + (إجمالي بنود التكلفة ÷ الكمية)
   const totalCost = manualLineCostItems.reduce((s,it) => s + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0)), 0);
   const priceField = document.getElementById('manualLineItemMfgPrice');
-  let price;
-  if(validCostItems.length){
-    price = qty > 0 ? totalCost / qty : 0;
-    priceField.value = price ? price.toFixed(2) : '';
-  } else {
-    price = parseFloat(priceField.value) || 0;
-  }
+  const basePrice = parseFloat(priceField.value) || 0;
+  const costPerUnit = qty > 0 ? totalCost / qty : 0;
+  const price = basePrice + costPerUnit;
   document.getElementById('manualLineItemTotalCost').textContent = fmt(totalCost);
-  document.getElementById('manualLineItemUnitCost').textContent = fmt(qty > 0 ? totalCost / qty : 0);
-  document.getElementById('manualLineItemMfgTotal').textContent = fmt(qty * price);
+  document.getElementById('manualLineItemUnitCost').textContent = fmt(price);
+  document.getElementById('manualLineItemMfgTotal').textContent = fmt(qty * basePrice);
   return { qty, price, totalCost: qty * price };
 }
 
