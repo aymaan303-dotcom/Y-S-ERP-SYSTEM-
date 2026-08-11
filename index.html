@@ -2756,16 +2756,23 @@
     <div style="border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:12px;">
       <label style="font-size:12.5px;">اسم المنتج الناتج *</label>
       <input type="text" id="manualMfgName" placeholder="مثال: مواسير مشغولة مقاس 2 بوصة" style="width:100%; margin:6px 0; box-sizing:border-box;">
-      <label style="font-size:12.5px;">الكمية *</label>
-      <input type="number" id="manualMfgQty" min="0.001" step="0.001" value="1" style="width:100%; margin-top:6px; box-sizing:border-box;" oninput="renderManualMfgSummary()">
+      <div class="form-row">
+        <div class="field"><label style="font-size:12.5px;">الكمية *</label>
+          <input type="number" id="manualMfgQty" min="0.001" step="0.001" value="1" style="width:100%; box-sizing:border-box;" oninput="renderManualMfgSummary()">
+        </div>
+        <div class="field"><label style="font-size:12.5px;">سعر الوحدة</label>
+          <input type="number" id="manualMfgPrice" min="0" step="0.01" placeholder="أو احسبه من بنود التكلفة تحت" style="width:100%; box-sizing:border-box;" oninput="renderManualMfgSummary()">
+        </div>
+      </div>
+      <div class="summary-line"><span>الإجمالي</span><b id="manualMfgDirectTotal">0.00</b></div>
     </div>
     <div class="field">
-      <label>بنود التكلفة (ليزر، نقل، عمالة...) *</label>
+      <label>بنود التكلفة (ليزر، نقل، عمالة...) — اختياري</label>
       <div id="manualMfgCostRows"></div>
       <button type="button" class="btn btn-ghost btn-sm" style="width:auto; margin-top:6px;" onclick="addManualMfgCostRow()">+ إضافة بند تكلفة</button>
     </div>
     <div class="summary-line"><span>إجمالي التكلفة</span><b id="manualMfgTotalCost">0.00</b></div>
-    <div class="summary-line total"><span>تكلفة الوحدة الناتجة</span><b id="manualMfgUnitCost">0.00</b></div>
+    <div class="summary-line total"><span>تكلفة الوحدة الناتجة (من بنود التكلفة)</span><b id="manualMfgUnitCost">0.00</b></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeManualMfgModal()">إلغاء</button>
       <button class="btn btn-primary" onclick="saveManualMfg(this)">حفظ البند</button>
@@ -10453,6 +10460,7 @@ let manualMfgCostItems = [];
 function openManualMfgModal(){
   document.getElementById('manualMfgName').value = '';
   document.getElementById('manualMfgQty').value = 1;
+  document.getElementById('manualMfgPrice').value = '';
   manualMfgCostItems = [];
   renderManualMfgCostRows();
   document.getElementById('manualMfgModalOverlay').classList.add('open');
@@ -10490,22 +10498,35 @@ function renderManualMfgCostRows(){
   renderManualMfgSummary();
 }
 function renderManualMfgSummary(){
-  const totalCost = manualMfgCostItems.reduce((s,it) => s + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0)), 0);
   const qty = parseFloat(document.getElementById('manualMfgQty').value) || 0;
-  const unitCost = qty > 0 ? totalCost / qty : 0;
+  const validItems = manualMfgCostItems.filter(it => it.label.trim() && (parseFloat(it.qty) || 0) > 0 && (parseFloat(it.price) || 0) > 0);
+  const totalCost = manualMfgCostItems.reduce((s,it) => s + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0)), 0);
+  const priceField = document.getElementById('manualMfgPrice');
+  let unitCost;
+  if(validItems.length){
+    unitCost = qty > 0 ? totalCost / qty : 0;
+    priceField.value = unitCost ? unitCost.toFixed(2) : '';
+  } else {
+    unitCost = parseFloat(priceField.value) || 0;
+  }
   document.getElementById('manualMfgTotalCost').textContent = fmt(totalCost);
-  document.getElementById('manualMfgUnitCost').textContent = fmt(unitCost);
-  return { totalCost, qty, unitCost };
+  document.getElementById('manualMfgUnitCost').textContent = fmt(qty > 0 ? totalCost / qty : 0);
+  document.getElementById('manualMfgDirectTotal').textContent = fmt(qty * unitCost);
+  return { totalCost: validItems.length ? totalCost : qty * unitCost, qty, unitCost, validItems };
 }
 
 async function saveManualMfg(btn){
   await withSaveGuard(btn, async () => {
     const name = document.getElementById('manualMfgName').value.trim();
     if(!name){ showToast('اكتب اسم المنتج الناتج'); return; }
-    const validItems = manualMfgCostItems.filter(it => it.label.trim() && (parseFloat(it.qty) || 0) > 0 && (parseFloat(it.price) || 0) > 0);
-    if(!validItems.length){ showToast('أضف بند تكلفة واحد على الأقل ببيان وكمية وسعر صحيحين'); return; }
-    const { totalCost, qty, unitCost } = renderManualMfgSummary();
+    const { qty, unitCost, validItems } = renderManualMfgSummary();
     if(qty <= 0){ showToast('اكتب كمية صحيحة'); return; }
+    if(unitCost <= 0){ showToast('اكتب سعر الوحدة، أو فصّله من بنود التكلفة تحت'); return; }
+    const totalCost = qty * unitCost;
+    // لو فيه بنود تكلفة مفصّلة استخدمها، ولو لأ سجّل بند تكلفة واحد إجمالي بالسعر المباشر
+    const extraCostItems = validItems.length
+      ? validItems.map(it => ({ label: it.label.trim(), qty: parseFloat(it.qty) || 0, price: parseFloat(it.price) || 0, amount: (parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0) }))
+      : [{ label: 'تكلفة مباشرة', qty: qty, price: unitCost, amount: totalCost }];
 
     const warehouseId = document.getElementById('mfgWarehouse').value;
     const warehouse = allWarehouses.find(w => w.id === warehouseId);
@@ -10521,7 +10542,7 @@ async function saveManualMfg(btn){
           rawMaterials: [],
           rawMaterialsCost: 0,
           extraCost: totalCost,
-          extraCostItems: validItems.map(it => ({ label: it.label.trim(), qty: parseFloat(it.qty) || 0, price: parseFloat(it.price) || 0, amount: (parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0) })),
+          extraCostItems,
           totalCost,
           isManualEntry: true,
           outputName: name,
@@ -10545,7 +10566,7 @@ async function saveManualMfg(btn){
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         }),
       ]);
-      const itemsSummary = validItems.map(it => `${it.label}: ${fmt(it.qty)}×${fmt(it.price)}=${fmt(it.qty*it.price)}ج`).join(' + ');
+      const itemsSummary = extraCostItems.map(it => `${it.label}: ${fmt(it.qty)}×${fmt(it.price)}=${fmt(it.amount)}ج`).join(' + ');
       logAction('manufacturing', 'بند تصنيع يدوي', name + ' — ' + itemsSummary + ' = ' + fmt(totalCost) + 'ج (' + fmt(qty) + ' وحدة)');
       showToast('تم إضافة أمر التصنيع رقم ' + orderNo + ' والبند لـ"تصنيع معلق" بنجاح');
       closeManualMfgModal();
