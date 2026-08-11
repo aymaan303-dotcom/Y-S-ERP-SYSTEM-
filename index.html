@@ -2780,19 +2780,26 @@
     <div style="border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:12px;">
       <label style="font-size:12.5px;">اسم البند *</label>
       <input type="text" id="manualLineItemName" placeholder="مثال: مواسير مشغولة مقاس 2 بوصة" style="width:100%; margin:6px 0; box-sizing:border-box;">
-      <label style="font-size:12.5px;">الكمية *</label>
-      <input type="number" id="manualLineItemQty" min="0.001" step="0.001" value="1" style="width:100%; margin-top:6px; box-sizing:border-box;" oninput="renderManualLineItemSummary()">
+      <div class="form-row">
+        <div class="field"><label style="font-size:12.5px;">الكمية *</label>
+          <input type="number" id="manualLineItemQty" min="0.001" step="0.001" value="1" style="width:100%; box-sizing:border-box;" oninput="renderManualLineItemSummary()">
+        </div>
+        <div class="field" id="manualLineItemMfgPriceField"><label style="font-size:12.5px;">سعر الوحدة</label>
+          <input type="number" id="manualLineItemMfgPrice" min="0" step="0.01" placeholder="أو احسبه من بنود التكلفة تحت" style="width:100%; box-sizing:border-box;" oninput="renderManualLineItemSummary()">
+        </div>
+      </div>
+      <div class="summary-line" id="manualLineItemMfgTotalRow"><span>الإجمالي</span><b id="manualLineItemMfgTotal">0.00</b></div>
     </div>
 
-    <!-- يظهر بس للبنود من نوع "تصنيع" — تفصيل بنود التكلفة زي ليزر/نقل/عمالة -->
+    <!-- يظهر بس للبنود من نوع "تصنيع" — تفصيل بنود التكلفة زي ليزر/نقل/عمالة (اختياري: لو اتملى بيحسب سعر الوحدة تلقائيًا فوق) -->
     <div id="manualLineItemCostSection">
       <div class="field">
-        <label>بنود التكلفة (ليزر، نقل، عمالة...) *</label>
+        <label>بنود التكلفة (ليزر، نقل، عمالة...) — اختياري</label>
         <div id="manualLineItemCostRows"></div>
         <button type="button" class="btn btn-ghost btn-sm" style="width:auto; margin-top:6px;" onclick="addManualLineCostRow()">+ إضافة بند تكلفة</button>
       </div>
       <div class="summary-line"><span>إجمالي التكلفة</span><b id="manualLineItemTotalCost">0.00</b></div>
-      <div class="summary-line total"><span>سعر الوحدة</span><b id="manualLineItemUnitCost">0.00</b></div>
+      <div class="summary-line total"><span>سعر الوحدة (من بنود التكلفة)</span><b id="manualLineItemUnitCost">0.00</b></div>
     </div>
 
     <!-- يظهر بس للبند اليدوي العام (بضاعة عادية) — سعر مباشر من غير تفصيل تكلفة -->
@@ -8303,8 +8310,11 @@ function addManualItem(type, manualType){
     : `إضافة بند تصنيع (${isSale ? 'بيع' : 'شراء'})`;
   document.getElementById('manualLineItemName').value = '';
   document.getElementById('manualLineItemQty').value = 1;
+  document.getElementById('manualLineItemMfgPrice').value = '';
   document.getElementById('manualLineItemPrice').value = '';
   document.getElementById('manualLineItemPriceLabel').textContent = `سعر ${isSale ? 'البيع' : 'الشراء'} للوحدة *`;
+  document.getElementById('manualLineItemMfgPriceField').style.display = isAdhoc ? 'none' : 'block';
+  document.getElementById('manualLineItemMfgTotalRow').style.display = isAdhoc ? 'none' : 'flex';
   document.getElementById('manualLineItemCostSection').style.display = isAdhoc ? 'none' : 'block';
   document.getElementById('manualLineItemPriceSection').style.display = isAdhoc ? 'block' : 'none';
 
@@ -8353,11 +8363,22 @@ function renderManualLineItemSummary(){
     document.getElementById('manualLineItemDirectTotal').textContent = fmt(qty * price);
     return { qty, price, totalCost: qty * price };
   }
+  // بند تصنيع: لو المستخدم ملى بنود تكلفة صحيحة، سعر الوحدة بيتحسب منها تلقائيًا ويعكسها
+  // في خانة "سعر الوحدة" فوق. لو مفيش بنود تكلفة، بياخد السعر من خانة "سعر الوحدة" مباشرة.
+  const validCostItems = manualLineCostItems.filter(it => it.label.trim() && (parseFloat(it.qty) || 0) > 0 && (parseFloat(it.price) || 0) > 0);
   const totalCost = manualLineCostItems.reduce((s,it) => s + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0)), 0);
-  const unitPrice = qty > 0 ? totalCost / qty : 0;
+  const priceField = document.getElementById('manualLineItemMfgPrice');
+  let price;
+  if(validCostItems.length){
+    price = qty > 0 ? totalCost / qty : 0;
+    priceField.value = price ? price.toFixed(2) : '';
+  } else {
+    price = parseFloat(priceField.value) || 0;
+  }
   document.getElementById('manualLineItemTotalCost').textContent = fmt(totalCost);
-  document.getElementById('manualLineItemUnitCost').textContent = fmt(unitPrice);
-  return { qty, price: unitPrice, totalCost };
+  document.getElementById('manualLineItemUnitCost').textContent = fmt(qty > 0 ? totalCost / qty : 0);
+  document.getElementById('manualLineItemMfgTotal').textContent = fmt(qty * price);
+  return { qty, price, totalCost: qty * price };
 }
 
 function confirmAddManualLineItem(){
@@ -8371,11 +8392,10 @@ function confirmAddManualLineItem(){
     if(qty <= 0){ showToast('اكتب كمية صحيحة'); return; }
     if(price <= 0){ showToast('اكتب سعر صحيح'); return; }
   }else{
-    const validItems = manualLineCostItems.filter(it => it.label.trim() && (parseFloat(it.qty) || 0) > 0 && (parseFloat(it.price) || 0) > 0);
-    if(!validItems.length){ showToast('أضف بند تكلفة واحد على الأقل ببيان وكمية وسعر صحيحين'); return; }
     const summary = renderManualLineItemSummary();
     qty = summary.qty; price = summary.price;
     if(qty <= 0){ showToast('اكتب كمية صحيحة'); return; }
+    if(price <= 0){ showToast('اكتب سعر الوحدة، أو فصّله من بنود التكلفة تحت'); return; }
   }
 
   const item = {
@@ -8398,7 +8418,19 @@ function confirmAddManualLineItem(){
     pcart.push(item);
     renderPurchaseCartTable();
   }
-  closeManualLineItemModal();
+
+  showToast(`تمت إضافة "${name}" للفاتورة — تقدر تضيف بند تاني أو تدوس إلغاء للخروج`);
+
+  // بنسيب المودال مفتوح ونصفّر الحقول عشان يقدر يضيف أكتر من بند ورا بعضه من غير ما
+  // يعيد فتح المودال في كل مرة
+  document.getElementById('manualLineItemName').value = '';
+  document.getElementById('manualLineItemQty').value = 1;
+  document.getElementById('manualLineItemMfgPrice').value = '';
+  document.getElementById('manualLineItemPrice').value = '';
+  manualLineCostItems = [];
+  renderManualLineCostRows();
+  renderManualLineItemSummary();
+  document.getElementById('manualLineItemName').focus();
 }
 
 /* ---------- تحويل الوزن/العدد الفعليين لكل بند (بيع أو شراء) ----------
