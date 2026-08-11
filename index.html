@@ -2622,10 +2622,30 @@
     </div>
     <input type="hidden" id="smId">
     <div class="field"><label>اسم البند</label><input type="text" id="smName" readonly style="background:var(--input-bg);"></div>
-    <div class="field"><label>العميل *</label><select id="smCustomer"></select></div>
+    <div class="field"><label>العميل *</label><select id="smCustomer" onchange="document.getElementById('smCustomerNew').value=''"></select>
+      <input type="text" id="smCustomerNew" placeholder="أو اكتب اسم عميل جديد (يُسجَّل تلقائيًا عند الحفظ)" oninput="if(this.value) document.getElementById('smCustomer').value=''" style="margin-top:6px; width:100%; padding:9px 12px; border-radius:8px; background:var(--input-bg); border:1px solid var(--border); color:var(--text); font-family:'Cairo'; font-size:12.5px; box-sizing:border-box;">
+    </div>
     <div class="form-row">
-      <div class="field"><label>الكمية للبيع</label><input type="number" id="smQty" step="0.001"></div>
-      <div class="field"><label>سعر البيع</label><input type="number" id="smPrice" step="0.01"></div>
+      <div class="field"><label>الكمية للبيع</label><input type="number" id="smQty" step="0.001" oninput="renderSmTotals()"></div>
+      <div class="field"><label>سعر البيع (للوحدة)</label><input type="number" id="smPrice" step="0.01" oninput="renderSmTotals()"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>الخصم</label>
+        <span style="display:flex; gap:6px;">
+          <input type="number" id="smDiscount" value="0" min="0" oninput="renderSmTotals()">
+          <select id="smDiscountType" onchange="renderSmTotals()" style="padding:5px; border-radius:7px; background:var(--input-bg); border:1px solid var(--border); color:var(--text);">
+            <option value="pct">%</option>
+            <option value="amt">ج.م</option>
+          </select>
+        </span>
+      </div>
+      <div class="field"><label>ضريبة القيمة المضافة</label><span><input type="number" id="smVat" value="0" min="0" oninput="renderSmTotals()"> %</span></div>
+    </div>
+    <div style="background:var(--input-bg); border-radius:10px; padding:10px 14px; margin:6px 0 12px; font-size:13px;">
+      <div style="display:flex; justify-content:space-between; padding:3px 0;"><span>الإجمالي قبل الخصم</span><b id="smSubtotal">0.00</b></div>
+      <div style="display:flex; justify-content:space-between; padding:3px 0;"><span>الخصم</span><b id="smDiscountAmt">0.00</b></div>
+      <div style="display:flex; justify-content:space-between; padding:3px 0;"><span>الضريبة</span><b id="smVatAmt">0.00</b></div>
+      <div style="display:flex; justify-content:space-between; padding:6px 0 0; font-size:15px; font-weight:800; border-top:1px solid var(--border); margin-top:4px;"><span>الإجمالي النهائي</span><b id="smGrandTotal">0.00</b></div>
     </div>
     <div class="field"><label>طريقة الدفع</label>
       <select id="smPaymentType" onchange="toggleSmPaymentAccount()">
@@ -2737,6 +2757,37 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeManualMfgModal()">إلغاء</button>
       <button class="btn btn-primary" onclick="saveManualMfg(this)">حفظ البند</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MANUAL LINE ITEM MODAL (بند تصنيع/يدوي في فاتورة بيع أو شراء) ===== -->
+<div class="modal-overlay" id="manualLineItemModalOverlay">
+  <div class="modal-box" style="max-width:480px;">
+    <div class="modal-head"><h3 id="manualLineItemTitle">إضافة بند</h3><span class="modal-close" onclick="closeManualLineItemModal()">✕</span></div>
+    <div class="field"><label>اسم البند *</label><input type="text" id="manualLineItemName" placeholder="مثال: مواسير مشغولة مقاس 2 بوصة"></div>
+    <div class="field"><label>الكمية *</label><input type="number" id="manualLineItemQty" min="0.001" step="0.001" value="1" oninput="renderManualLineItemSummary()"></div>
+
+    <!-- يظهر بس للبنود من نوع "تصنيع" — تفصيل بنود التكلفة زي ليزر/نقل/عمالة -->
+    <div id="manualLineItemCostSection">
+      <div class="field">
+        <label>بنود التكلفة (ليزر، نقل، عمالة...) *</label>
+        <div id="manualLineItemCostRows"></div>
+        <button type="button" class="btn btn-ghost btn-sm" style="width:auto; margin-top:6px;" onclick="addManualLineCostRow()">+ إضافة بند تكلفة</button>
+      </div>
+      <div class="summary-line"><span>إجمالي التكلفة</span><b id="manualLineItemTotalCost">0.00</b></div>
+      <div class="summary-line total"><span>سعر الوحدة</span><b id="manualLineItemUnitCost">0.00</b></div>
+    </div>
+
+    <!-- يظهر بس للبند اليدوي العام (بضاعة عادية) — سعر مباشر من غير تفصيل تكلفة -->
+    <div id="manualLineItemPriceSection" style="display:none;">
+      <div class="field"><label id="manualLineItemPriceLabel">سعر الوحدة *</label><input type="number" id="manualLineItemPrice" min="0" step="0.01" oninput="renderManualLineItemSummary()"></div>
+      <div class="summary-line total"><span>الإجمالي</span><b id="manualLineItemDirectTotal">0.00</b></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeManualLineItemModal()">إلغاء</button>
+      <button class="btn btn-primary" onclick="confirmAddManualLineItem()">إضافة للفاتورة</button>
     </div>
   </div>
 </div>
@@ -8217,16 +8268,99 @@ async function quickCreateItemAndAdd(rawName, mode){
 
 /* بند مكتوب يدويًا (اسم + كمية + سعر) بدون ما يتسجل في قائمة الأصناف ولا يأثر على
    المخزون خالص — نوعين:
-   - 'manufacturing': بند تصنيع/خدمة (زي ما كان قبل كده)، بيدخل في تقرير ربحية التصنيع الموحّد.
+   - 'manufacturing': بند تصنيع/خدمة، بتفصّل بنوده (ليزر، نقل، عمالة...) زي مودال
+     "بند تصنيع يدوي" في صفحة التصنيع بالظبط، وبيدخل في تقرير ربحية التصنيع الموحّد.
    - 'adhoc': بند يدوي عام (بضاعة بتتشترى وتتباع في نفس اللحظة، مش من أصناف مخزنة أصلاً)،
-     بيتسجل في الفاتورة عادي (بيع أو شراء) بس من غير ما يدخل في تقرير التصنيع أو يتسجل كصنف. */
+     سعر وحدة مباشر من غير تفصيل تكلفة، ومش بيدخل في تقرير التصنيع. */
+let manualLineItemType = 'sale';
+let manualLineItemManualType = 'manufacturing';
+let manualLineCostItems = [];
+
 function addManualItem(type, manualType){
-  manualType = manualType || 'manufacturing';
-  const isAdhoc = manualType === 'adhoc';
-  const name = prompt(isAdhoc ? 'أدخل اسم البند:' : 'أدخل اسم بند التصنيع / الخدمة:');
-  if(!name) return;
-  const price = parseFloat(prompt(`أدخل سعر ${type === 'sale' ? 'البيع' : 'الشراء'} للوحدة:`, '0')) || 0;
-  const qty = parseFloat(prompt('أدخل الكمية:', '1')) || 1;
+  manualLineItemType = type;
+  manualLineItemManualType = manualType || 'manufacturing';
+  const isAdhoc = manualLineItemManualType === 'adhoc';
+  const isSale = type === 'sale';
+
+  document.getElementById('manualLineItemTitle').textContent = isAdhoc
+    ? `إضافة بند يدوي (${isSale ? 'بيع' : 'شراء'})`
+    : `إضافة بند تصنيع (${isSale ? 'بيع' : 'شراء'})`;
+  document.getElementById('manualLineItemName').value = '';
+  document.getElementById('manualLineItemQty').value = 1;
+  document.getElementById('manualLineItemPrice').value = '';
+  document.getElementById('manualLineItemPriceLabel').textContent = `سعر ${isSale ? 'البيع' : 'الشراء'} للوحدة *`;
+  document.getElementById('manualLineItemCostSection').style.display = isAdhoc ? 'none' : 'block';
+  document.getElementById('manualLineItemPriceSection').style.display = isAdhoc ? 'block' : 'none';
+
+  manualLineCostItems = [];
+  renderManualLineCostRows();
+  renderManualLineItemSummary();
+  document.getElementById('manualLineItemModalOverlay').classList.add('open');
+}
+function closeManualLineItemModal(){
+  document.getElementById('manualLineItemModalOverlay').classList.remove('open');
+}
+
+function addManualLineCostRow(label, qty, price){
+  manualLineCostItems.push({ label: label || '', qty: qty != null ? qty : 1, price: price || 0 });
+  renderManualLineCostRows();
+}
+function removeManualLineCostRow(idx){
+  manualLineCostItems.splice(idx, 1);
+  renderManualLineCostRows();
+}
+function updateManualLineCostRow(idx, field, value){
+  manualLineCostItems[idx][field] = field === 'label' ? value : (parseFloat(value) || 0);
+  renderManualLineCostRows();
+}
+function renderManualLineCostRows(){
+  const box = document.getElementById('manualLineItemCostRows');
+  box.innerHTML = manualLineCostItems.map((it, idx) => `
+    <div style="border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:8px;">
+      <input type="text" placeholder="البيان (مثال: ليزر)" value="${escapeHtml(it.label)}" style="width:100%; margin-bottom:6px; box-sizing:border-box;" oninput="updateManualLineCostRow(${idx},'label',this.value)">
+      <div style="display:flex; gap:6px; align-items:center;">
+        <input type="number" placeholder="الكمية" value="${it.qty}" min="0" step="0.001" style="flex:1;" oninput="updateManualLineCostRow(${idx},'qty',this.value)">
+        <span style="color:var(--muted);">×</span>
+        <input type="number" placeholder="السعر" value="${it.price}" min="0" step="0.01" style="flex:1;" oninput="updateManualLineCostRow(${idx},'price',this.value)">
+        <span style="color:var(--muted);">=</span>
+        <b style="flex:1; text-align:center; font-size:13px;">${fmt(it.qty * it.price)}</b>
+        <span class="btn-icon danger" onclick="removeManualLineCostRow(${idx})" title="حذف البند">✕</span>
+      </div>
+    </div>`).join('') || '<div style="color:var(--muted); font-size:12.5px; margin-bottom:6px;">أضف على الأقل بند تكلفة واحد (زي ليزر: 1 × 40، نقل: 1 × 30...)</div>';
+  renderManualLineItemSummary();
+}
+
+function renderManualLineItemSummary(){
+  const qty = parseFloat(document.getElementById('manualLineItemQty').value) || 0;
+  if(manualLineItemManualType === 'adhoc'){
+    const price = parseFloat(document.getElementById('manualLineItemPrice').value) || 0;
+    document.getElementById('manualLineItemDirectTotal').textContent = fmt(qty * price);
+    return { qty, price, totalCost: qty * price };
+  }
+  const totalCost = manualLineCostItems.reduce((s,it) => s + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0)), 0);
+  const unitPrice = qty > 0 ? totalCost / qty : 0;
+  document.getElementById('manualLineItemTotalCost').textContent = fmt(totalCost);
+  document.getElementById('manualLineItemUnitCost').textContent = fmt(unitPrice);
+  return { qty, price: unitPrice, totalCost };
+}
+
+function confirmAddManualLineItem(){
+  const name = document.getElementById('manualLineItemName').value.trim();
+  if(!name){ showToast('اكتب اسم البند'); return; }
+  const isAdhoc = manualLineItemManualType === 'adhoc';
+
+  let qty, price;
+  if(isAdhoc){
+    ({ qty, price } = renderManualLineItemSummary());
+    if(qty <= 0){ showToast('اكتب كمية صحيحة'); return; }
+    if(price <= 0){ showToast('اكتب سعر صحيح'); return; }
+  }else{
+    const validItems = manualLineCostItems.filter(it => it.label.trim() && (parseFloat(it.qty) || 0) > 0 && (parseFloat(it.price) || 0) > 0);
+    if(!validItems.length){ showToast('أضف بند تكلفة واحد على الأقل ببيان وكمية وسعر صحيحين'); return; }
+    const summary = renderManualLineItemSummary();
+    qty = summary.qty; price = summary.price;
+    if(qty <= 0){ showToast('اكتب كمية صحيحة'); return; }
+  }
 
   const item = {
     itemId: 'manual_' + Date.now(),
@@ -8235,19 +8369,20 @@ function addManualItem(type, manualType){
     price: price,
     qty: qty,
     isManual: true,
-    manualType: manualType,
+    manualType: manualLineItemManualType,
     buyBy: 'count', sellBy: 'count',
     unitData: { factor: 1, count: 1, sellPrice: price, buyPrice: price },
     baseUnitType: 'count'
   };
 
-  if(type === 'sale'){
+  if(manualLineItemType === 'sale'){
     cart.push(item);
     renderCartTable();
   }else{
     pcart.push(item);
     renderPurchaseCartTable();
   }
+  closeManualLineItemModal();
 }
 
 /* ---------- تحويل الوزن/العدد الفعليين لكل بند (بيع أو شراء) ----------
@@ -9063,14 +9198,41 @@ function openSellManufacturingModal(id){
   document.getElementById('smName').value = m.name;
   document.getElementById('smQty').value = m.qty;
   document.getElementById('smPrice').value = m.suggestedSellPrice > 0 ? m.suggestedSellPrice : '';
-  
+  document.getElementById('smDiscount').value = 0;
+  document.getElementById('smDiscountType').value = 'pct';
+  document.getElementById('smVat').value = 0;
+  document.getElementById('smCustomerNew').value = '';
+
   // Fill customers
   const custOpts = allCustomers.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
   document.getElementById('smCustomer').innerHTML = '<option value="">-- اختر عميل --</option>' + custOpts;
-  
+
   fillAccountSelects();
   toggleSmPaymentAccount();
+  renderSmTotals();
   document.getElementById('sellManufacturingModalOverlay').classList.add('open');
+}
+
+/* بتحسب وتعرض ملخص إجماليات مودال بيع البند المعلق (زي ملخص فاتورة البيع العادية بالظبط)،
+   وبترجع القيم عشان confirmSellManufacturing يستخدمها في حفظ الفاتورة من غير ما يعيد الحساب. */
+function renderSmTotals(){
+  const qty = parseFloat(document.getElementById('smQty').value) || 0;
+  const price = parseFloat(document.getElementById('smPrice').value) || 0;
+  const subtotal = qty * price;
+  const discountVal = parseFloat(document.getElementById('smDiscount').value) || 0;
+  const discountType = document.getElementById('smDiscountType').value;
+  const discountAmt = discountType === 'pct' ? subtotal * discountVal / 100 : Math.min(discountVal, subtotal);
+  const afterDiscount = Math.max(subtotal - discountAmt, 0);
+  const vatRate = parseFloat(document.getElementById('smVat').value) || 0;
+  const vatAmt = afterDiscount * vatRate / 100;
+  const grandTotal = afterDiscount + vatAmt;
+
+  document.getElementById('smSubtotal').textContent = fmt(subtotal);
+  document.getElementById('smDiscountAmt').textContent = fmt(discountAmt);
+  document.getElementById('smVatAmt').textContent = fmt(vatAmt);
+  document.getElementById('smGrandTotal').textContent = fmt(grandTotal);
+
+  return { subtotal, discountAmt, vatRate, vatAmt, grandTotal };
 }
 
 function closeSellManufacturingModal(){ document.getElementById('sellManufacturingModalOverlay').classList.remove('open'); }
@@ -9083,17 +9245,20 @@ function toggleSmPaymentAccount(){
 async function confirmSellManufacturing(){
   const id = document.getElementById('smId').value;
   const m = allPendingManufacturing.find(x => x.id === id);
-  const customerId = document.getElementById('smCustomer').value;
   const price = parseFloat(document.getElementById('smPrice').value) || 0;
   const qty = parseFloat(document.getElementById('smQty').value) || 0;
   const paymentType = document.getElementById('smPaymentType').value;
-  
-  if(!customerId || price <= 0 || qty <= 0){ showToast('أكمل البيانات المطلوبة'); return; }
+
+  const hasNewCustomer = document.getElementById('smCustomerNew').value.trim() !== '';
+  if((!document.getElementById('smCustomer').value && !hasNewCustomer) || price <= 0 || qty <= 0){ showToast('أكمل البيانات المطلوبة'); return; }
   if(qty > m.qty){ showToast(`الكمية المتاحة من هذا البند هي ${fmt(m.qty)} فقط`); return; }
 
+  const customerId = await resolvePartyId('customer', 'smCustomer');
+  if(!customerId){ showToast('اختر عميلاً أو اكتب اسم عميل جديد'); return; }
   const customer = allCustomers.find(c => c.id === customerId);
+  const totals = renderSmTotals();
   const invoiceNo = await getNextInvoiceNumber();
-  
+
   // Create sales invoice for this manufacturing item
   const invoiceData = {
     number: invoiceNo,
@@ -9103,15 +9268,15 @@ async function confirmSellManufacturing(){
     warehouseId: m.warehouseId,
     warehouseName: m.warehouseName,
     items: [{ itemId: 'man_' + id, name: m.name, unit: 'تصنيع', qty, price, total: qty * price, returnedQty: 0, isManual: true }],
-    subtotal: qty * price,
-    discount: 0,
-    vat: 0,
-    total: qty * price,
+    subtotal: totals.subtotal,
+    discount: totals.discountAmt,
+    vat: totals.vatAmt,
+    total: totals.grandTotal,
     paymentType,
     status: 'confirmed',
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   };
-  
+
   let accountType = '', accountId = '';
   if(paymentType === 'cash'){
     const accVal = document.getElementById('smPaymentAccount').value;
@@ -9122,13 +9287,13 @@ async function confirmSellManufacturing(){
   }
 
   await db.collection('salesInvoices').add(invoiceData);
-  
+
   if(paymentType === 'credit'){
-    await adjustPartyBalance('customer', customerId, qty * price, 'invoice', String(invoiceNo), '');
+    await adjustPartyBalance('customer', customerId, totals.grandTotal, 'invoice', String(invoiceNo), '');
   } else {
-    await adjustAccountBalance(accountType, accountId, qty * price);
+    await adjustAccountBalance(accountType, accountId, totals.grandTotal);
   }
-  
+
   // Update pending manufacturing status
   await db.collection('pendingManufacturing').doc(id).update({
     status: 'sold',
@@ -9139,8 +9304,8 @@ async function confirmSellManufacturing(){
     soldDate: firebase.firestore.FieldValue.serverTimestamp(),
     salesInvoiceNumber: invoiceNo
   });
-  
-  await postSalesInvoiceJournal(invoiceNo, paymentType, { subtotal: qty*price, discountAmt:0, vatAmt:0, grandTotal: qty*price }, invoiceData.items);
+
+  await postSalesInvoiceJournal(invoiceNo, paymentType, totals, invoiceData.items);
   await logAction('sales', 'بيع بند تصنيع معلق', '#' + invoiceNo + ' - ' + m.name);
   
   showToast('تم إتمام البيع وترحيله بنجاح');
@@ -9216,10 +9381,10 @@ async function cancelPendingManufacturing(id){
 /* ================= التصنيع الفعلي: استهلاك خامات من المخزن وإنتاج صنف جاهز جديد ================= */
 let mfgRawCart = [];
 let mfgRemOutCart = [];
-let mfgExtraCostItems = []; // [{label, amount}] — بنود التكلفة الإضافية (ليزر، نقل، عمالة...)
+let mfgExtraCostItems = []; // [{label, qty, price}] — بنود التكلفة الإضافية (ليزر، نقل، عمالة...)
 
-function addMfgExtraCostRow(label, amount){
-  mfgExtraCostItems.push({ label: label || '', amount: amount || 0 });
+function addMfgExtraCostRow(label, qty, price){
+  mfgExtraCostItems.push({ label: label || '', qty: qty != null ? qty : 1, price: price || 0 });
   renderMfgExtraCostRows();
 }
 function removeMfgExtraCostRow(idx){
@@ -9227,17 +9392,23 @@ function removeMfgExtraCostRow(idx){
   renderMfgExtraCostRows();
 }
 function updateMfgExtraCostRow(idx, field, value){
-  mfgExtraCostItems[idx][field] = field === 'amount' ? (parseFloat(value) || 0) : value;
-  renderMfgSummary();
+  mfgExtraCostItems[idx][field] = field === 'label' ? value : (parseFloat(value) || 0);
+  renderMfgExtraCostRows();
 }
 function renderMfgExtraCostRows(){
   const box = document.getElementById('mfgExtraCostRows');
   if(!box) return;
   box.innerHTML = mfgExtraCostItems.map((it, idx) => `
-    <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
-      <input type="text" placeholder="البيان (مثال: ليزر)" value="${escapeHtml(it.label)}" style="flex:2;" oninput="updateMfgExtraCostRow(${idx},'label',this.value)">
-      <input type="number" placeholder="المبلغ" value="${it.amount}" min="0" step="0.01" style="flex:1;" oninput="updateMfgExtraCostRow(${idx},'amount',this.value)">
-      <span class="btn-icon danger" onclick="removeMfgExtraCostRow(${idx})" title="حذف البند">✕</span>
+    <div style="border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:8px;">
+      <input type="text" placeholder="البيان (مثال: ليزر)" value="${escapeHtml(it.label)}" style="width:100%; margin-bottom:6px; box-sizing:border-box;" oninput="updateMfgExtraCostRow(${idx},'label',this.value)">
+      <div style="display:flex; gap:6px; align-items:center;">
+        <input type="number" placeholder="الكمية" value="${it.qty}" min="0" step="0.001" style="flex:1;" oninput="updateMfgExtraCostRow(${idx},'qty',this.value)">
+        <span style="color:var(--muted);">×</span>
+        <input type="number" placeholder="السعر" value="${it.price}" min="0" step="0.01" style="flex:1;" oninput="updateMfgExtraCostRow(${idx},'price',this.value)">
+        <span style="color:var(--muted);">=</span>
+        <b style="flex:1; text-align:center; font-size:13px;">${fmt(it.qty * it.price)}</b>
+        <span class="btn-icon danger" onclick="removeMfgExtraCostRow(${idx})" title="حذف البند">✕</span>
+      </div>
     </div>`).join('') || '<div style="color:var(--muted); font-size:12.5px; margin-bottom:6px;">لا توجد تكاليف إضافية — دوس "+ إضافة بند تكلفة" لو فيه (زي ليزر، نقل، عمالة...)</div>';
   renderMfgSummary();
 }
@@ -9586,7 +9757,7 @@ function renderMfgSummary(){
   const rawTotal = mfgRawCart.reduce((s,c) => s + (c.qty * c.price), 0);
   document.getElementById('mfgRawTotal').textContent = fmt(rawTotal);
 
-  const extraCost = mfgExtraCostItems.reduce((s,it) => s + (parseFloat(it.amount) || 0), 0);
+  const extraCost = mfgExtraCostItems.reduce((s,it) => s + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0)), 0);
   document.getElementById('mfgExtraCostTotal').textContent = fmt(extraCost);
   const totalCost = rawTotal + extraCost;
   document.getElementById('mfgTotalCost').textContent = fmt(totalCost);
@@ -10132,7 +10303,7 @@ async function saveManufacturingOrder(btn){
         rawMaterials: mfgRawCart.map(c => ({ itemId:c.itemId, name:c.name, unit:c.unit, weight:c.weight, count:c.count, mode:c.mode, qty:c.qty, cost: c.qty*c.price, source: c.source || 'warehouse' })),
         rawMaterialsCost: summary.rawTotal,
         extraCost: summary.extraCost,
-        extraCostItems: mfgExtraCostItems.filter(it => it.label.trim() || it.amount > 0).map(it => ({ label: it.label.trim(), amount: parseFloat(it.amount) || 0 })),
+        extraCostItems: mfgExtraCostItems.filter(it => it.label.trim() && (parseFloat(it.qty)||0) > 0 && (parseFloat(it.price)||0) > 0).map(it => ({ label: it.label.trim(), qty: parseFloat(it.qty) || 0, price: parseFloat(it.price) || 0, amount: (parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0) })),
         extraCostPaid, extraAccountType, extraAccountId,
         totalCost: summary.totalCost,
         // المنتج الناتج مش صنف في المخزون — بيتحول مباشرة لبند "تصنيع معلق" منفصل تمامًا عن نظام الأصناف/المخزون
@@ -10223,8 +10394,8 @@ function closeManualMfgModal(){
   document.getElementById('manualMfgModalOverlay').classList.remove('open');
 }
 
-function addManualMfgCostRow(label, amount){
-  manualMfgCostItems.push({ label: label || '', amount: amount || 0 });
+function addManualMfgCostRow(label, qty, price){
+  manualMfgCostItems.push({ label: label || '', qty: qty != null ? qty : 1, price: price || 0 });
   renderManualMfgCostRows();
 }
 function removeManualMfgCostRow(idx){
@@ -10232,21 +10403,27 @@ function removeManualMfgCostRow(idx){
   renderManualMfgCostRows();
 }
 function updateManualMfgCostRow(idx, field, value){
-  manualMfgCostItems[idx][field] = field === 'amount' ? (parseFloat(value) || 0) : value;
-  renderManualMfgSummary();
+  manualMfgCostItems[idx][field] = field === 'label' ? value : (parseFloat(value) || 0);
+  renderManualMfgCostRows();
 }
 function renderManualMfgCostRows(){
   const box = document.getElementById('manualMfgCostRows');
   box.innerHTML = manualMfgCostItems.map((it, idx) => `
-    <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
-      <input type="text" placeholder="البيان (مثال: ليزر)" value="${escapeHtml(it.label)}" style="flex:2;" oninput="updateManualMfgCostRow(${idx},'label',this.value)">
-      <input type="number" placeholder="المبلغ" value="${it.amount}" min="0" step="0.01" style="flex:1;" oninput="updateManualMfgCostRow(${idx},'amount',this.value)">
-      <span class="btn-icon danger" onclick="removeManualMfgCostRow(${idx})" title="حذف البند">✕</span>
-    </div>`).join('') || '<div style="color:var(--muted); font-size:12.5px; margin-bottom:6px;">أضف على الأقل بند تكلفة واحد (زي ليزر 40، نقل 30...)</div>';
+    <div style="border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:8px;">
+      <input type="text" placeholder="البيان (مثال: ليزر)" value="${escapeHtml(it.label)}" style="width:100%; margin-bottom:6px; box-sizing:border-box;" oninput="updateManualMfgCostRow(${idx},'label',this.value)">
+      <div style="display:flex; gap:6px; align-items:center;">
+        <input type="number" placeholder="الكمية" value="${it.qty}" min="0" step="0.001" style="flex:1;" oninput="updateManualMfgCostRow(${idx},'qty',this.value)">
+        <span style="color:var(--muted);">×</span>
+        <input type="number" placeholder="السعر" value="${it.price}" min="0" step="0.01" style="flex:1;" oninput="updateManualMfgCostRow(${idx},'price',this.value)">
+        <span style="color:var(--muted);">=</span>
+        <b style="flex:1; text-align:center; font-size:13px;">${fmt(it.qty * it.price)}</b>
+        <span class="btn-icon danger" onclick="removeManualMfgCostRow(${idx})" title="حذف البند">✕</span>
+      </div>
+    </div>`).join('') || '<div style="color:var(--muted); font-size:12.5px; margin-bottom:6px;">أضف على الأقل بند تكلفة واحد (زي ليزر: 1 × 40، نقل: 1 × 30...)</div>';
   renderManualMfgSummary();
 }
 function renderManualMfgSummary(){
-  const totalCost = manualMfgCostItems.reduce((s,it) => s + (parseFloat(it.amount) || 0), 0);
+  const totalCost = manualMfgCostItems.reduce((s,it) => s + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0)), 0);
   const qty = parseFloat(document.getElementById('manualMfgQty').value) || 0;
   const unitCost = qty > 0 ? totalCost / qty : 0;
   document.getElementById('manualMfgTotalCost').textContent = fmt(totalCost);
@@ -10258,8 +10435,8 @@ async function saveManualMfg(btn){
   await withSaveGuard(btn, async () => {
     const name = document.getElementById('manualMfgName').value.trim();
     if(!name){ showToast('اكتب اسم المنتج الناتج'); return; }
-    const validItems = manualMfgCostItems.filter(it => it.label.trim() && it.amount > 0);
-    if(!validItems.length){ showToast('أضف بند تكلفة واحد على الأقل ببيان ومبلغ صحيح'); return; }
+    const validItems = manualMfgCostItems.filter(it => it.label.trim() && (parseFloat(it.qty) || 0) > 0 && (parseFloat(it.price) || 0) > 0);
+    if(!validItems.length){ showToast('أضف بند تكلفة واحد على الأقل ببيان وكمية وسعر صحيحين'); return; }
     const { totalCost, qty, unitCost } = renderManualMfgSummary();
     if(qty <= 0){ showToast('اكتب كمية صحيحة'); return; }
 
@@ -10277,7 +10454,7 @@ async function saveManualMfg(btn){
           rawMaterials: [],
           rawMaterialsCost: 0,
           extraCost: totalCost,
-          extraCostItems: validItems.map(it => ({ label: it.label.trim(), amount: parseFloat(it.amount) || 0 })),
+          extraCostItems: validItems.map(it => ({ label: it.label.trim(), qty: parseFloat(it.qty) || 0, price: parseFloat(it.price) || 0, amount: (parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0) })),
           totalCost,
           isManualEntry: true,
           outputName: name,
@@ -10301,7 +10478,7 @@ async function saveManualMfg(btn){
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         }),
       ]);
-      const itemsSummary = validItems.map(it => `${it.label}: ${fmt(it.amount)}ج`).join(' + ');
+      const itemsSummary = validItems.map(it => `${it.label}: ${fmt(it.qty)}×${fmt(it.price)}=${fmt(it.qty*it.price)}ج`).join(' + ');
       logAction('manufacturing', 'بند تصنيع يدوي', name + ' — ' + itemsSummary + ' = ' + fmt(totalCost) + 'ج (' + fmt(qty) + ' وحدة)');
       showToast('تم إضافة أمر التصنيع رقم ' + orderNo + ' والبند لـ"تصنيع معلق" بنجاح');
       closeManualMfgModal();
