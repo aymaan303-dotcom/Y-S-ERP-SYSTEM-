@@ -702,6 +702,15 @@
             ⬇️
           </span>
           <div class="notif-wrap">
+            <span class="notif-bell" onclick="toggleStockNotifPanel()" title="تنبيهات نقص المخزون">
+              📦<span class="notif-badge" id="stockNotifBadge" style="display:none;">0</span>
+            </span>
+            <div class="notif-panel" id="stockNotifPanel">
+              <div class="notif-panel-head">نقص المخزون</div>
+              <div id="stockNotifPanelList"><div class="empty-state">لا يوجد نقص مخزون حاليًا 🎉</div></div>
+            </div>
+          </div>
+          <div class="notif-wrap">
             <span class="notif-bell" onclick="toggleNotifPanel()" title="التنبيهات">
               🔔<span class="notif-badge" id="notifBadge" style="display:none;">0</span>
             </span>
@@ -3766,35 +3775,55 @@ let alertsState = { lowStock: [], checksDue: 0, invoicesDue: [] };
 function updateAlerts(partial){
   alertsState = { ...alertsState, ...partial };
   const list = document.getElementById('alertsList');
-  const rows = [];
 
-  alertsState.lowStock.forEach(name => {
-    rows.push(`<div class="alert-row"><span class="dot" style="background:var(--red)"></span> نقص مخزون: <b>${escapeHtml(name)}</b></div>`);
-  });
+  // تنبيهات نقص المخزون — بتتحط لوحدها في جرس منفصل (📦)
+  const stockRows = alertsState.lowStock.map(name =>
+    `<div class="alert-row"><span class="dot" style="background:var(--red)"></span> نقص مخزون: <b>${escapeHtml(name)}</b></div>`
+  );
+
+  // باقي التنبيهات (شيكات مستحقة، فواتير مستحقة...) — في جرس التنبيهات العادي (🔔)
+  const otherRows = [];
   if(alertsState.checksDue > 0){
-    rows.push(`<div class="alert-row"><span class="dot" style="background:var(--amber)"></span> يوجد <b>${alertsState.checksDue}</b> شيك مستحق خلال 7 أيام</div>`);
+    otherRows.push(`<div class="alert-row"><span class="dot" style="background:var(--amber)"></span> يوجد <b>${alertsState.checksDue}</b> شيك مستحق خلال 7 أيام</div>`);
   }
   alertsState.invoicesDue.forEach(inv => {
     const isOverdue = inv.dueDate < new Date().toISOString().slice(0,10);
-    rows.push(`<div class="alert-row" style="cursor:pointer;" onclick="openDueInvoiceDetails('${inv.id}')">
+    otherRows.push(`<div class="alert-row" style="cursor:pointer;" onclick="openDueInvoiceDetails('${inv.id}')">
       <span class="dot" style="background:${isOverdue ? 'var(--red)' : 'var(--amber)'}"></span>
       💰 ${isOverdue ? 'متأخرة عن التحصيل' : 'مستحقة قريبًا'}: فاتورة <b>#${inv.number}</b> — ${escapeHtml(inv.customerName)} (${fmt(inv.total)} ج) — ${isOverdue ? 'كانت مستحقة' : 'تستحق'} ${escapeHtml(inv.dueDate)}
     </div>`);
   });
 
+  const rows = [...stockRows, ...otherRows];
   document.getElementById('kpiAlerts').textContent = rows.length;
   list.innerHTML = rows.length ? rows.join('') : '<div class="empty-state">لا توجد تنبيهات حاليًا 🎉</div>';
 
-  // مزامنة جرس التنبيهات في الشريط العلوي (ظاهر في كل صفحات البرنامج، مش بس لوحة التحكم)
+  // مزامنة جرس نقص المخزون في الشريط العلوي
+  const stockBadge = document.getElementById('stockNotifBadge');
+  const stockPanelList = document.getElementById('stockNotifPanelList');
+  if(stockBadge){
+    if(stockRows.length){ stockBadge.textContent = stockRows.length; stockBadge.style.display = 'flex'; }
+    else{ stockBadge.style.display = 'none'; }
+  }
+  if(stockPanelList){
+    stockPanelList.innerHTML = stockRows.length ? stockRows.join('') : '<div class="empty-state">لا يوجد نقص مخزون حاليًا 🎉</div>';
+  }
+
+  // مزامنة جرس باقي التنبيهات في الشريط العلوي (ظاهر في كل صفحات البرنامج، مش بس لوحة التحكم)
   const badge = document.getElementById('notifBadge');
   const panelList = document.getElementById('notifPanelList');
   if(badge){
-    if(rows.length){ badge.textContent = rows.length; badge.style.display = 'flex'; }
+    if(otherRows.length){ badge.textContent = otherRows.length; badge.style.display = 'flex'; }
     else{ badge.style.display = 'none'; }
   }
   if(panelList){
-    panelList.innerHTML = rows.length ? rows.join('') : '<div class="empty-state">لا توجد تنبيهات حاليًا 🎉</div>';
+    panelList.innerHTML = otherRows.length ? otherRows.join('') : '<div class="empty-state">لا توجد تنبيهات حاليًا 🎉</div>';
   }
+}
+
+/* بيفتح/يقفل قايمة تنبيهات نقص المخزون المنسدلة من جرس الشريط العلوي */
+function toggleStockNotifPanel(){
+  document.getElementById('stockNotifPanel').classList.toggle('open');
 }
 
 /* بيفتح/يقفل قايمة التنبيهات المنسدلة من جرس الشريط العلوي */
@@ -3802,10 +3831,11 @@ function toggleNotifPanel(){
   document.getElementById('notifPanel').classList.toggle('open');
 }
 document.addEventListener('click', (e) => {
-  const wrap = document.querySelector('.notif-wrap');
-  if(wrap && !wrap.contains(e.target)){
-    document.getElementById('notifPanel')?.classList.remove('open');
-  }
+  document.querySelectorAll('.notif-wrap').forEach(wrap => {
+    if(!wrap.contains(e.target)){
+      wrap.querySelector('.notif-panel')?.classList.remove('open');
+    }
+  });
 });
 
 /* هيدر ثابت فيه شعار الشركة وبيانات التواصل، بيتحط أعلى أي ورقة مطبوعة (فواتير، كشوف حساب، تقارير...) */
