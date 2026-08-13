@@ -12956,11 +12956,15 @@ function fillQuoteCustomerSelect(){
 }
 
 function renderQCartSearch(){
-  const q = document.getElementById('qcartSearch').value.trim().toLowerCase();
+  const rawVal = document.getElementById('qcartSearch').value.trim();
+  const q = rawVal.toLowerCase();
   const box = document.getElementById('qcartSearchResults');
   if(!q){ box.innerHTML = ''; return; }
   const matches = allItems.filter(it => (it.name||'').toLowerCase().includes(q)).slice(0,6);
-  box.innerHTML = matches.map(it => `<div class="alert-row clickable" onclick="addToQCart('${it.id}')"><span>➕ ${escapeHtml(it.name)}</span></div>`).join('') || '<div class="empty-state">لا توجد نتائج</div>';
+  const rows = matches.map(it => `<div class="alert-row clickable" onclick="addToQCart('${it.id}')"><span>➕ ${escapeHtml(it.name)}</span></div>`);
+  // بند يدوي: يسمح بكتابة اسم صنف مش موجود بالمخزون — مفيد لعروض الأسعار/الفواتير المبدئية اللي ممكن متتنفذش
+  rows.push(`<div class="alert-row clickable" style="border:1px dashed var(--border);" onclick="addManualQItem()"><span>✏️ إضافة "${escapeHtml(rawVal)}" كصنف يدوي (مش لازم يكون مسجل بالمخزون)</span></div>`);
+  box.innerHTML = rows.join('');
 }
 
 function addToQCart(itemId){
@@ -12976,6 +12980,17 @@ function addToQCart(itemId){
   document.getElementById('qcartSearchResults').innerHTML = '';
   renderQCartTable();
 }
+
+/* إضافة بند يدوي (اسمه اتكتب حر بدون ما يكون مسجل في سجل الأصناف) —
+   مفيد في عروض الأسعار/الفواتير المبدئية لأنها مش بالضرورة هتتنفذ أو تخصم من المخزون */
+function addManualQItem(){
+  const raw = document.getElementById('qcartSearch').value.trim();
+  if(!raw){ showToast('اكتب اسم الصنف أولاً'); return; }
+  qcart.push({ itemId: null, name: raw, unit: 'وحدة', price: 0, qty: 1, isManual: true });
+  document.getElementById('qcartSearch').value = '';
+  document.getElementById('qcartSearchResults').innerHTML = '';
+  renderQCartTable();
+}
 function removeQCartItem(idx){ qcart.splice(idx,1); renderQCartTable(); }
 
 function renderQCartTable(){
@@ -12986,8 +13001,8 @@ function renderQCartTable(){
     const lineTotal = c.qty * c.price;
     subtotal += lineTotal;
     return `<tr>
-      <td>${escapeHtml(c.name)}</td>
-      <td>${escapeHtml(c.unit)}</td>
+      <td>${c.isManual ? `<input type="text" value="${escapeHtml(c.name)}" style="width:100%; min-width:120px;" onchange="qcart[${idx}].name=this.value.trim()||qcart[${idx}].name; renderQCartTable();">` : escapeHtml(c.name)}</td>
+      <td>${c.isManual ? `<input type="text" value="${escapeHtml(c.unit)}" style="width:80px;" onchange="qcart[${idx}].unit=this.value.trim()||qcart[${idx}].unit; renderQCartTable();">` : escapeHtml(c.unit)}</td>
       <td><input type="number" min="0" step="0.001" value="${c.qty}" onchange="qcart[${idx}].qty=parseFloat(this.value)||0; renderQCartTable();"></td>
       <td><input type="number" min="0" step="0.01" value="${c.price}" onchange="qcart[${idx}].price=parseFloat(this.value)||0; renderQCartTable();"></td>
       <td>${fmt(lineTotal)}</td>
@@ -13033,7 +13048,7 @@ async function saveQuoteOrOrder(){
     customerId, customerName: customer ? customer.name : '',
     validUntil: isQuote ? (document.getElementById('quoteValidUntil').value || '') : '',
     terms: isQuote ? (document.getElementById('quoteTerms').value.trim() || '') : '',
-    items: qcart.map(c => ({ itemId:c.itemId, name:c.name, unit:c.unit, qty:c.qty, price:c.price, total:c.qty*c.price })),
+    items: qcart.map(c => ({ itemId:c.itemId||null, name:c.name, unit:c.unit, qty:c.qty, price:c.price, total:c.qty*c.price, isManual: !!c.isManual })),
     subtotal: totals.subtotal, discount: totals.discountAmt,
     discountType: document.getElementById('quoteDiscountType').value,
     discountRaw: parseFloat(document.getElementById('quoteDiscount').value) || 0,
