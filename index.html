@@ -7105,12 +7105,16 @@ async function adjustAccountBalance(accountType, accountId, delta){
 
 /* Vouchers */
 function openVoucherModal(type, prefillPartyType, prefillPartyId){
+  // بيضمن إن الخزائن والحسابات البنكية اتحمّلت حتى لو المستخدم فاتح السند من صفحة
+  // العملاء/الموردين قبل ما يزور صفحة الخزينة أصلاً (وهي أول مرة بيتشغل فيها الليسنر بتاعها)
+  ensureAccountsLoaded();
   document.getElementById('voucherType').value = type;
   document.getElementById('voucherModalTitle').textContent = type === 'receipt' ? 'سند قبض' : 'سند صرف';
   document.getElementById('voucherPartyType').value = prefillPartyType || 'customer';
   document.getElementById('voucherAmount').value = '';
   document.getElementById('voucherNote').value = '';
   fillVoucherParties();
+  fillAccountSelects();
   if(prefillPartyId){
     document.getElementById('voucherPartyId').value = prefillPartyId;
   }
