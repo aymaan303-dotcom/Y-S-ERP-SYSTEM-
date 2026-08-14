@@ -6398,6 +6398,7 @@ function renderPartyTable(){
       <td class="${balClass}">${fmt(Math.abs(bal))} ${bal > 0 ? (currentPartyTab==='customers'?'(مدين)':'(له عندنا)') : ''}</td>
       <td>${currentPartyTab === 'customers' ? fmt(p.creditLimit || 0) : '—'}</td>
       <td style="display:flex; gap:6px;">
+        <span class="btn-icon" title="${currentPartyTab === 'customers' ? 'تحصيل دفعة من العميل' : 'دفع للمورد'}" onclick="openPartyVoucher('${p.id}')">💰</span>
         <span class="btn-icon" onclick="openStatement('${currentPartyTab === 'customers' ? 'customer' : 'supplier'}','${p.id}')">📋</span>
         <span class="btn-icon" onclick="openPartyModal('${p.id}')">✎</span>
       </td>
@@ -7103,16 +7104,28 @@ async function adjustAccountBalance(accountType, accountId, delta){
 }
 
 /* Vouchers */
-function openVoucherModal(type){
+function openVoucherModal(type, prefillPartyType, prefillPartyId){
   document.getElementById('voucherType').value = type;
   document.getElementById('voucherModalTitle').textContent = type === 'receipt' ? 'سند قبض' : 'سند صرف';
-  document.getElementById('voucherPartyType').value = 'customer';
+  document.getElementById('voucherPartyType').value = prefillPartyType || 'customer';
   document.getElementById('voucherAmount').value = '';
   document.getElementById('voucherNote').value = '';
   fillVoucherParties();
+  if(prefillPartyId){
+    document.getElementById('voucherPartyId').value = prefillPartyId;
+  }
   document.getElementById('voucherModalOverlay').classList.add('open');
 }
 function closeVoucherModal(){ document.getElementById('voucherModalOverlay').classList.remove('open'); }
+
+/* بيفتح سند قبض جاهز (لو الجهة عميل) أو سند صرف جاهز (لو الجهة مورد) مربوط مباشرة
+   باسم العميل/المورد اللي ضغط على زرار السداد جنبه في جدول العملاء والموردين */
+function openPartyVoucher(partyId){
+  const isCustomer = currentPartyTab === 'customers';
+  const type = isCustomer ? 'receipt' : 'payment';
+  const partyType = isCustomer ? 'customer' : 'supplier';
+  openVoucherModal(type, partyType, partyId);
+}
 
 /* Approval System Logic */
 async function createApprovalRequest(type, data, description){
