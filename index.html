@@ -932,6 +932,7 @@
                   <select id="lateDeductionMode" onchange="toggleDeductionInputs()">
                     <option value="proportional">نسبي من أجر الساعة حسب دقائق التأخير</option>
                     <option value="fixedPerHour">مبلغ ثابت عن كل ساعة تأخير</option>
+                    <option value="tiers">شرائح تحددها انت (مدة التأخير ← نسبة من يوم الراتب)</option>
                   </select>
                 </div>
                 <div class="field" id="lateHourlyRateField" style="display:none;">
@@ -951,7 +952,33 @@
                   <input type="number" id="earlyHourlyRate" min="0" placeholder="مثال: 20">
                 </div>
               </div>
-              <button class="btn btn-primary" style="width:auto; margin-top:6px;" onclick="saveDeductionSettings()">حفظ إعدادات الخصومات</button>
+
+              <div id="lateTiersSection" style="display:none; margin-top:14px; border-top:1px solid var(--border,#2a3a55); padding-top:12px;">
+                <label style="display:block; margin-bottom:8px;">شرائح خصم التأخير (بالترتيب اللي هتتحسب بيه — أول شريحة تنطبق على عدد دقائق التأخير هي اللي هتتطبق)</label>
+                <div id="lateTiersRows"></div>
+                <button class="btn btn-ghost btn-sm" style="width:auto; margin-top:6px;" onclick="addLateTierRow()">+ إضافة شريحة</button>
+                <div style="font-size:11px; color:var(--muted); margin-top:6px;">
+                  مثال: من 1 دقيقة لغاية 60 دقيقة → 0.25 (ربع يوم). من 61 لغاية 180 → 0.5 (نص يوم). سيب "إلى" فاضية لو الشريحة مفتوحة بدون حد أقصى.
+                </div>
+              </div>
+
+              <div style="margin-top:16px; border-top:1px solid var(--border,#2a3a55); padding-top:12px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                  <input type="checkbox" id="overtimeEnabled" onchange="toggleDeductionInputs()">
+                  ⏱️ تفعيل احتساب وقت إضافي عند تأخر ميعاد الانصراف (المكوث بعد الموعد المتوقع)
+                </label>
+                <div id="overtimeFields" style="display:none; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-top:10px;">
+                  <div class="field"><label>من دقيقة (بعد ميعاد الانصراف)</label><input type="number" id="overtimeMinMinutes" min="0" placeholder="مثال: 60"></div>
+                  <div class="field"><label>إلى دقيقة</label><input type="number" id="overtimeMaxMinutes" min="0" placeholder="مثال: 90"></div>
+                  <div class="field"><label>أجر الساعة الإضافية (ج.م)</label><input type="number" id="overtimeHourlyRate" min="0" placeholder="مثال: 25"></div>
+                </div>
+                <div style="font-size:11px; color:var(--muted); margin-top:6px;">
+                  لو الموظف اتأخر في الانصراف بعدد دقائق واقع في المدى ده، هيظهرلك زرار "احتساب الإضافي" جنب اسمه في صفحة الرواتب —
+                  المبلغ ما بيتحسبش تلقائي، لازم تدوس الزرار بنفسك لكل موظف عشان يتضاف لصافي راتبه.
+                </div>
+              </div>
+
+              <button class="btn btn-primary" style="width:auto; margin-top:14px;" onclick="saveDeductionSettings()">حفظ إعدادات الخصومات</button>
             </div>
           </div>
 
@@ -1525,7 +1552,7 @@
             </p>
             <div class="table-wrap">
               <table class="data-table">
-                <thead><tr><th>الموظف</th><th>الراتب الأساسي</th><th>أيام الفترة</th><th>أيام الحضور</th><th>أيام الغياب</th><th>دقائق التأخير</th><th>دقائق الانصراف المبكر</th><th>خصم الغياب</th><th>خصم التأخير</th><th>خصم الانصراف المبكر</th><th>خصم السلف (يدوي)</th><th>صافي الراتب</th></tr></thead>
+                <thead><tr><th>الموظف</th><th>الراتب الأساسي</th><th>أيام الفترة</th><th>أيام الحضور</th><th>أيام الغياب</th><th>دقائق التأخير</th><th>دقائق الانصراف المبكر</th><th>خصم الغياب</th><th>خصم التأخير</th><th>خصم الانصراف المبكر</th><th>خصم السلف (يدوي)</th><th>الوقت الإضافي</th><th>صافي الراتب</th></tr></thead>
                 <tbody id="payrollTableBody"></tbody>
               </table>
             </div>
@@ -4476,16 +4503,17 @@ async function confirmAttendance(){
         closeAttendanceCameraModal();
         return;
       }
-      // حساب دقائق الانصراف المبكر مقارنة بموعد الانصراف المتوقع
+      // حساب دقائق الانصراف المبكر (أو دقائق التأخر عن ميعاد الانصراف لو انصرف بعد الموعد) مقارنة بالموعد المتوقع
       const [expH, expM] = (emp.expectedEndTime || '17:00').split(':').map(Number);
       const expectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), expH, expM, 0);
       const earlyMinutes = Math.max(0, Math.round((expectedDate - now) / 60000));
+      const overtimeMinutes = Math.max(0, Math.round((now - expectedDate) / 60000));
 
       await db.collection('attendance').doc(doc.id).update({
         checkOutTime: firebase.firestore.FieldValue.serverTimestamp(),
         checkOutPhoto: attendanceCapturedDataUrl,
         checkOutLocation: locationPayload,
-        earlyMinutes,
+        earlyMinutes, overtimeMinutes,
       });
       await logAction('hr', 'تسجيل انصراف', emp.name + (earlyMinutes > 0 ? ` (انصراف مبكر ${earlyMinutes} دقيقة)` : ''));
       showToast(earlyMinutes > 0 ? `تم تسجيل الانصراف — مبكر ${earlyMinutes} دقيقة` : 'تم تسجيل الانصراف');
@@ -4733,6 +4761,15 @@ function countWorkingDaysInMonth(year, monthIndex){
   return count;
 }
 
+/* بيدور على أول شريحة (من شرائح خصم التأخير اللي المستخدم عرّفها في الإعدادات) بتنطبق على عدد
+   دقائق التأخير في يوم واحد، وبيرجع نسبة يوم الراتب اللي المفروض تتخصم بسببها (مثلاً 0.25 = ربع يوم) */
+function findLateTierDeduction(minutes, tiers){
+  if(!minutes || minutes <= 0 || !Array.isArray(tiers) || !tiers.length) return 0;
+  const tier = tiers.find(t => minutes >= (t.from || 0) && (t.to == null || minutes <= t.to));
+  return tier ? (tier.fraction || 0) : 0;
+}
+
+
 /* بيحول قيمة input[type=week] بصيغة "YYYY-Www" لتاريخ بداية (السبت) ونهاية (الجمعة) أسبوع العمل،
    لأن أسبوع الشغل عندنا بيبدأ السبت والجمعة هي يوم الإجازة الوحيد (مش زي الأسبوع الميلادي المعياري
    اللي بيبدأ الاثنين وبيخلص الأحد اللي بيديه الـ input الأصلي) */
@@ -4826,6 +4863,7 @@ async function calculatePayroll(){
     const daysPresent = empRecords.length;
     const totalLateMinutes = empRecords.reduce((sum, r) => sum + (r.lateMinutes || 0), 0);
     const totalEarlyMinutes = empRecords.reduce((sum, r) => sum + (r.earlyMinutes || 0), 0);
+    const totalOvertimeMinutes = empRecords.reduce((sum, r) => sum + (r.overtimeMinutes || 0), 0);
     const daysAbsent = Math.max(0, workingDays - daysPresent);
 
     const dailyRate = workingDays > 0 ? emp.monthlySalary / workingDays : 0;
@@ -4834,9 +4872,15 @@ async function calculatePayroll(){
       ? daysAbsent * (companySettingsCache.absenceFixedAmount || 0)
       : daysAbsent * dailyRate;
 
-    const lateDeduction = companySettingsCache.lateDeductionMode === 'fixedPerHour'
-      ? (totalLateMinutes / 60) * (companySettingsCache.lateHourlyRate || 0)
-      : (totalLateMinutes / (8 * 60)) * dailyRate;
+    let lateDeduction;
+    if(companySettingsCache.lateDeductionMode === 'tiers'){
+      // بيتحسب لكل يوم لوحده حسب الشريحة اللي دقايق تأخيره واقعة فيها، مش على إجمالي الدقايق في الفترة كلها
+      lateDeduction = empRecords.reduce((sum, r) => sum + findLateTierDeduction(r.lateMinutes || 0, companySettingsCache.lateDeductionTiers) * dailyRate, 0);
+    }else if(companySettingsCache.lateDeductionMode === 'fixedPerHour'){
+      lateDeduction = (totalLateMinutes / 60) * (companySettingsCache.lateHourlyRate || 0);
+    }else{
+      lateDeduction = (totalLateMinutes / (8 * 60)) * dailyRate;
+    }
 
     const earlyDeduction = companySettingsCache.earlyDeductionMode === 'fixedPerHour'
       ? (totalEarlyMinutes / 60) * (companySettingsCache.earlyHourlyRate || 0)
@@ -4848,10 +4892,19 @@ async function calculatePayroll(){
 
     const advanceDeduction = 0; // يُكتب يدويًا بواسطة المستخدم قبل الاعتماد
 
+    // الوقت الإضافي (تأخر الانصراف): بيظهر زرار "احتساب الإضافي" بس لو مفعّل من الإعدادات
+    // وعدد دقايقه الإجمالية واقعة في المدى (من - إلى) اللي المستخدم حدده، ومحدش بيتحسب تلقائي
+    const overtimeEligible = !!companySettingsCache.overtimeEnabled
+      && totalOvertimeMinutes >= (companySettingsCache.overtimeMinMinutes || 0)
+      && totalOvertimeMinutes <= (companySettingsCache.overtimeMaxMinutes || 0);
+    const overtimeHourlyRate = companySettingsCache.overtimeHourlyRate || 0;
+
     results.push({
       employeeId: emp.id, name: emp.name, monthlySalary: emp.monthlySalary, payFrequency: frequency,
       workingDays, daysPresent, daysAbsent,
-      totalLateMinutes, totalEarlyMinutes, absenceDeduction, lateDeduction, earlyDeduction, advanceDeduction, openAdvanceBalance,
+      totalLateMinutes, totalEarlyMinutes, totalOvertimeMinutes,
+      absenceDeduction, lateDeduction, earlyDeduction, advanceDeduction, openAdvanceBalance,
+      overtimeEligible, overtimeApplied: false, overtimePay: 0, overtimeHourlyRate,
       netSalary: Math.max(0, emp.monthlySalary - absenceDeduction - lateDeduction - earlyDeduction - advanceDeduction),
     });
   }
@@ -4866,8 +4919,23 @@ function updatePayrollAdvanceDeduction(idx, val){
   const r = lastPayrollResults[idx];
   if(!r) return;
   r.advanceDeduction = Math.max(0, parseFloat(val) || 0);
-  r.netSalary = Math.max(0, r.monthlySalary - r.absenceDeduction - r.lateDeduction - (r.earlyDeduction || 0) - r.advanceDeduction);
+  recalcPayrollNet(r);
   renderPayrollTable(lastPayrollResults);
+}
+
+/* بيتفعّل بس لو الموظف فعلاً واقع في مدى الوقت الإضافي المسموح بيه من الإعدادات — لو دوس المستخدم
+   على الزرار بيتضاف المبلغ لصافي راتبه، ولو رجع دوس تاني (لإلغاء الاختيار) بيتشال تلقائي */
+function togglePayrollOvertime(idx, checked){
+  const r = lastPayrollResults[idx];
+  if(!r || !r.overtimeEligible) return;
+  r.overtimeApplied = checked;
+  r.overtimePay = checked ? (r.totalOvertimeMinutes / 60) * (r.overtimeHourlyRate || 0) : 0;
+  recalcPayrollNet(r);
+  renderPayrollTable(lastPayrollResults);
+}
+
+function recalcPayrollNet(r){
+  r.netSalary = Math.max(0, r.monthlySalary - r.absenceDeduction - r.lateDeduction - (r.earlyDeduction || 0) - r.advanceDeduction + (r.overtimePay || 0));
 }
 
 function renderPayrollTable(results){
@@ -4889,8 +4957,17 @@ function renderPayrollTable(results){
         <input type="number" min="0" step="0.01" value="${r.advanceDeduction}" style="width:90px;" onchange="updatePayrollAdvanceDeduction(${idx}, this.value)">
         ${r.openAdvanceBalance > 0 ? `<div style="font-size:11px; color:var(--muted); margin-top:3px;">متبقي سلف: ${fmt(r.openAdvanceBalance)}</div>` : ''}
       </td>
+      <td>
+        ${r.overtimeEligible ? `
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
+            <input type="checkbox" ${r.overtimeApplied ? 'checked' : ''} onchange="togglePayrollOvertime(${idx}, this.checked)">
+            احتساب الإضافي
+          </label>
+          <div style="font-size:11px; color:var(--muted); margin-top:3px;">${r.totalOvertimeMinutes} دقيقة${r.overtimeApplied ? ' — ' + fmt(r.overtimePay) + ' ج' : ''}</div>
+        ` : (r.totalOvertimeMinutes > 0 ? `<span style="font-size:11px; color:var(--muted);">${r.totalOvertimeMinutes} دقيقة (خارج مدى الاحتساب)</span>` : '—')}
+      </td>
       <td><b>${fmt(r.netSalary)} ج</b></td>
-    </tr>`).join('') || '<tr><td colspan="12" style="text-align:center; color:var(--muted);">اضغط "احسب الرواتب" لعرض النتائج</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="13" style="text-align:center; color:var(--muted);">اضغط "احسب الرواتب" لعرض النتائج</td></tr>';
 
   const totalNet = results.reduce((s,r) => s + r.netSalary, 0);
   const totalLabel = document.getElementById('payrollTotalNetLabel');
@@ -4965,14 +5042,14 @@ function printPayrollReport(){
     <tr>
       <td>${escapeHtml(r.name)}</td><td>${fmt(r.monthlySalary)}</td><td>${r.daysPresent}/${r.workingDays}</td>
       <td>${r.daysAbsent}</td><td>${r.totalLateMinutes}</td><td>${r.totalEarlyMinutes || 0}</td>
-      <td>${fmt(r.absenceDeduction)}</td><td>${fmt(r.lateDeduction)}</td><td>${fmt(r.earlyDeduction || 0)}</td><td>${fmt(r.advanceDeduction)}</td><td><b>${fmt(r.netSalary)}</b></td>
+      <td>${fmt(r.absenceDeduction)}</td><td>${fmt(r.lateDeduction)}</td><td>${fmt(r.earlyDeduction || 0)}</td><td>${fmt(r.advanceDeduction)}</td><td>${fmt(r.overtimePay || 0)}</td><td><b>${fmt(r.netSalary)}</b></td>
     </tr>`).join('');
 
   document.getElementById('printArea').innerHTML = `
     ${printLogoHeaderHtml()}
     <h2>كشف رواتب ${escapeHtml(lastPayrollMeta ? lastPayrollMeta.periodLabel : '')}</h2>
     <table>
-      <thead><tr><th>الموظف</th><th>الراتب الأساسي</th><th>الحضور</th><th>أيام الغياب</th><th>دقائق التأخير</th><th>دقائق الانصراف المبكر</th><th>خصم الغياب</th><th>خصم التأخير</th><th>خصم الانصراف المبكر</th><th>خصم السلف</th><th>صافي الراتب</th></tr></thead>
+      <thead><tr><th>الموظف</th><th>الراتب الأساسي</th><th>الحضور</th><th>أيام الغياب</th><th>دقائق التأخير</th><th>دقائق الانصراف المبكر</th><th>خصم الغياب</th><th>خصم التأخير</th><th>خصم الانصراف المبكر</th><th>خصم السلف</th><th>الوقت الإضافي</th><th>صافي الراتب</th></tr></thead>
       <tbody>${rowsHtml}</tbody>
     </table>
     <h3 style="margin-top:14px;">إجمالي صافي الرواتب: ${fmt(totalNet)} جنيه</h3>
@@ -4983,16 +5060,52 @@ function printPayrollReport(){
 /* ---------- Settings page ---------- */
 let companySettingsCache = { autoApprovalLimit: 0, maxDiscountAmount: 0, purchaseAutoApprovalLimit: 0, attendanceLat: null, attendanceLng: null, attendanceRadius: 0, name: '', phone: '', address: '', tax: '',
   absenceDeductionMode: 'fullDay', absenceFixedAmount: 0,
-  lateDeductionMode: 'proportional', lateHourlyRate: 0,
-  earlyDeductionMode: 'proportional', earlyHourlyRate: 0 };
+  lateDeductionMode: 'proportional', lateHourlyRate: 0, lateDeductionTiers: [],
+  earlyDeductionMode: 'proportional', earlyHourlyRate: 0,
+  overtimeEnabled: false, overtimeMinMinutes: 60, overtimeMaxMinutes: 90, overtimeHourlyRate: 0 };
+
+/* شرائح خصم التأخير بيتم تعديلها في الذاكرة هنا وهي مفتوحة للتعديل، وبتتحفظ فعليًا لما تدوس "حفظ إعدادات الخصومات" */
+let pendingLateTiers = [];
+
+function renderLateTiersRows(){
+  const box = document.getElementById('lateTiersRows');
+  if(!box) return;
+  if(!pendingLateTiers.length){
+    box.innerHTML = '<div style="font-size:12px; color:var(--muted); margin-bottom:6px;">مفيش شرائح مضافة — دوس "إضافة شريحة" عشان تبدأ.</div>';
+    return;
+  }
+  box.innerHTML = pendingLateTiers.map((t, idx) => `
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:10px; align-items:end; margin-bottom:8px;">
+      <div class="field"><label>من دقيقة</label><input type="number" min="0" value="${t.from ?? ''}" onchange="updateLateTierField(${idx},'from',this.value)"></div>
+      <div class="field"><label>إلى دقيقة (اختياري)</label><input type="number" min="0" value="${t.to ?? ''}" placeholder="بدون حد" onchange="updateLateTierField(${idx},'to',this.value)"></div>
+      <div class="field"><label>نسبة خصم من يوم الراتب</label><input type="number" min="0" step="0.01" value="${t.fraction ?? ''}" placeholder="مثال: 0.25" onchange="updateLateTierField(${idx},'fraction',this.value)"></div>
+      <button class="btn btn-ghost btn-sm" style="width:auto;" onclick="removeLateTierRow(${idx})">🗑️</button>
+    </div>`).join('');
+}
+function addLateTierRow(){
+  pendingLateTiers.push({ from: '', to: '', fraction: '' });
+  renderLateTiersRows();
+}
+function removeLateTierRow(idx){
+  pendingLateTiers.splice(idx, 1);
+  renderLateTiersRows();
+}
+function updateLateTierField(idx, field, val){
+  if(!pendingLateTiers[idx]) return;
+  pendingLateTiers[idx][field] = val === '' ? '' : parseFloat(val);
+}
 
 function toggleDeductionInputs(){
   const absenceMode = document.getElementById('absenceDeductionMode').value;
   document.getElementById('absenceFixedAmountField').style.display = absenceMode === 'fixedAmount' ? 'block' : 'none';
   const lateMode = document.getElementById('lateDeductionMode').value;
   document.getElementById('lateHourlyRateField').style.display = lateMode === 'fixedPerHour' ? 'block' : 'none';
+  document.getElementById('lateTiersSection').style.display = lateMode === 'tiers' ? 'block' : 'none';
+  if(lateMode === 'tiers') renderLateTiersRows();
   const earlyMode = document.getElementById('earlyDeductionMode').value;
   document.getElementById('earlyHourlyRateField').style.display = earlyMode === 'fixedPerHour' ? 'block' : 'none';
+  const overtimeOn = document.getElementById('overtimeEnabled').checked;
+  document.getElementById('overtimeFields').style.display = overtimeOn ? 'grid' : 'none';
 }
 
 async function saveDeductionSettings(){
@@ -5000,12 +5113,30 @@ async function saveDeductionSettings(){
   const absenceFixedAmount = parseFloat(document.getElementById('absenceFixedAmount').value) || 0;
   const lateDeductionMode = document.getElementById('lateDeductionMode').value;
   const lateHourlyRate = parseFloat(document.getElementById('lateHourlyRate').value) || 0;
+  const lateDeductionTiers = pendingLateTiers
+    .filter(t => t.from !== '' && t.from != null && t.fraction !== '' && t.fraction != null)
+    .map(t => ({ from: parseFloat(t.from) || 0, to: (t.to === '' || t.to == null) ? null : parseFloat(t.to), fraction: parseFloat(t.fraction) || 0 }))
+    .sort((a,b) => a.from - b.from);
   const earlyDeductionMode = document.getElementById('earlyDeductionMode').value;
   const earlyHourlyRate = parseFloat(document.getElementById('earlyHourlyRate').value) || 0;
+  const overtimeEnabled = document.getElementById('overtimeEnabled').checked;
+  const overtimeMinMinutes = parseFloat(document.getElementById('overtimeMinMinutes').value) || 0;
+  const overtimeMaxMinutes = parseFloat(document.getElementById('overtimeMaxMinutes').value) || 0;
+  const overtimeHourlyRate = parseFloat(document.getElementById('overtimeHourlyRate').value) || 0;
+  if(lateDeductionMode === 'tiers' && !lateDeductionTiers.length){
+    showToast('أضف شريحة واحدة على الأقل لخصم التأخير، أو اختر طريقة تانية');
+    return;
+  }
   await db.collection('settings').doc('company').set({
-    absenceDeductionMode, absenceFixedAmount, lateDeductionMode, lateHourlyRate, earlyDeductionMode, earlyHourlyRate
+    absenceDeductionMode, absenceFixedAmount, lateDeductionMode, lateHourlyRate, lateDeductionTiers,
+    earlyDeductionMode, earlyHourlyRate,
+    overtimeEnabled, overtimeMinMinutes, overtimeMaxMinutes, overtimeHourlyRate,
   }, { merge: true });
-  Object.assign(companySettingsCache, { absenceDeductionMode, absenceFixedAmount, lateDeductionMode, lateHourlyRate, earlyDeductionMode, earlyHourlyRate });
+  Object.assign(companySettingsCache, {
+    absenceDeductionMode, absenceFixedAmount, lateDeductionMode, lateHourlyRate, lateDeductionTiers,
+    earlyDeductionMode, earlyHourlyRate,
+    overtimeEnabled, overtimeMinMinutes, overtimeMaxMinutes, overtimeHourlyRate,
+  });
   showToast('تم حفظ إعدادات خصومات الرواتب');
   await logAction('settings', 'تحديث إعدادات خصومات الرواتب', '');
 }
@@ -5086,8 +5217,14 @@ async function loadCompany(){
     companySettingsCache.absenceFixedAmount = d.absenceFixedAmount || 0;
     companySettingsCache.lateDeductionMode = d.lateDeductionMode || 'proportional';
     companySettingsCache.lateHourlyRate = d.lateHourlyRate || 0;
+    companySettingsCache.lateDeductionTiers = Array.isArray(d.lateDeductionTiers) ? d.lateDeductionTiers : [];
     companySettingsCache.earlyDeductionMode = d.earlyDeductionMode || 'proportional';
     companySettingsCache.earlyHourlyRate = d.earlyHourlyRate || 0;
+    companySettingsCache.overtimeEnabled = !!d.overtimeEnabled;
+    companySettingsCache.overtimeMinMinutes = d.overtimeMinMinutes || 60;
+    companySettingsCache.overtimeMaxMinutes = d.overtimeMaxMinutes || 90;
+    companySettingsCache.overtimeHourlyRate = d.overtimeHourlyRate || 0;
+    pendingLateTiers = companySettingsCache.lateDeductionTiers.map(t => ({ ...t }));
     if(document.getElementById('absenceDeductionMode')){
       document.getElementById('absenceDeductionMode').value = companySettingsCache.absenceDeductionMode;
       document.getElementById('absenceFixedAmount').value = companySettingsCache.absenceFixedAmount;
@@ -5095,6 +5232,10 @@ async function loadCompany(){
       document.getElementById('lateHourlyRate').value = companySettingsCache.lateHourlyRate;
       document.getElementById('earlyDeductionMode').value = companySettingsCache.earlyDeductionMode;
       document.getElementById('earlyHourlyRate').value = companySettingsCache.earlyHourlyRate;
+      document.getElementById('overtimeEnabled').checked = companySettingsCache.overtimeEnabled;
+      document.getElementById('overtimeMinMinutes').value = companySettingsCache.overtimeMinMinutes;
+      document.getElementById('overtimeMaxMinutes').value = companySettingsCache.overtimeMaxMinutes;
+      document.getElementById('overtimeHourlyRate').value = companySettingsCache.overtimeHourlyRate;
       toggleDeductionInputs();
     }
   }
