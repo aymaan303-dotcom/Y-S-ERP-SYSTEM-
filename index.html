@@ -1507,7 +1507,12 @@
                 <option value="weekly">أسبوعي</option>
               </select>
               <input type="month" id="payrollMonthSelect">
-              <input type="week" id="payrollWeekSelect" style="display:none;">
+              <span id="payrollWeekFields" style="display:none; align-items:center; gap:8px;">
+                <label style="font-size:13px; color:var(--muted);">من</label>
+                <input type="date" id="payrollWeekStart">
+                <label style="font-size:13px; color:var(--muted);">إلى</label>
+                <input type="date" id="payrollWeekEnd">
+              </span>
               <button class="btn btn-primary" style="width:auto;" onclick="calculatePayroll()">احسب الرواتب</button>
               <div class="grow"></div>
               <button class="btn btn-ghost" style="width:auto;" onclick="printPayrollReport()">🖨️ طباعة / حفظ PDF</button>
@@ -1516,8 +1521,7 @@
               الحساب مبني على أيام الفترة بالكامل عدا الجمعة (يوم إجازة أسبوعية)، ويوم عمل قياسي = 8 ساعات.
               طريقة حساب خصم الغياب والتأخير والانصراف المبكر بتُحدد من صفحة "الإعدادات ← إعدادات خصومات الرواتب".
               خصم السلف يُكتب يدويًا لكل موظف قبل الاعتماد (مش بيتحسب تلقائي).
-              <br>ملاحظة: عند اختيار "أسبوعي"، أسبوع الشغل الفعلي المحسوب بيبدأ يوم السبت وينتهي يوم الجمعة
-              (مش زي شكل التقويم اللي بيظهره المتصفح من الاثنين للأحد) — التاريخ الفعلي هيظهر تحت في تسمية الفترة بعد الحساب.
+              <br>عند اختيار "أسبوعي" حدد تاريخ "من" و"إلى" يدويًا زي ما انت عايز (مثلاً من السبت لغاية الجمعة).
             </p>
             <div class="table-wrap">
               <table class="data-table">
@@ -4763,7 +4767,19 @@ function countWorkingDaysInRange(startStr, endStr){
 function togglePayrollPeriodInput(){
   const isWeekly = document.getElementById('payrollFrequencySelect').value === 'weekly';
   document.getElementById('payrollMonthSelect').style.display = isWeekly ? 'none' : 'inline-block';
-  document.getElementById('payrollWeekSelect').style.display = isWeekly ? 'inline-block' : 'none';
+  document.getElementById('payrollWeekFields').style.display = isWeekly ? 'inline-flex' : 'none';
+  // لو لسه المستخدم مكتبش تواريخ، نقترح افتراضيًا آخر سبت لغاية الجمعة الجاية (أسبوع الشغل الحالي)
+  if(isWeekly && !document.getElementById('payrollWeekStart').value){
+    const today = new Date();
+    const dow = today.getDay(); // الأحد=0 ... الجمعة=5 ... السبت=6
+    const daysSinceSaturday = (dow + 1) % 7; // السبت=0, الأحد=1, ... الجمعة=6
+    const saturday = new Date(today);
+    saturday.setDate(today.getDate() - daysSinceSaturday);
+    const friday = new Date(saturday);
+    friday.setDate(saturday.getDate() + 6);
+    document.getElementById('payrollWeekStart').value = dateToStr(saturday);
+    document.getElementById('payrollWeekEnd').value = dateToStr(friday);
+  }
 }
 
 async function calculatePayroll(){
@@ -4781,11 +4797,10 @@ async function calculatePayroll(){
     periodLabel = 'شهر ' + monthVal;
     workingDays = countWorkingDaysInMonth(year, monthIndex);
   }else{
-    const weekVal = document.getElementById('payrollWeekSelect').value; // "YYYY-Www"
-    if(!weekVal){ showToast('اختر الأسبوع أولاً'); return; }
-    const { start, end } = isoWeekToDateRange(weekVal);
-    periodStart = dateToStr(start);
-    periodEnd = dateToStr(end);
+    periodStart = document.getElementById('payrollWeekStart').value; // "YYYY-MM-DD"
+    periodEnd = document.getElementById('payrollWeekEnd').value; // "YYYY-MM-DD"
+    if(!periodStart || !periodEnd){ showToast('اختر تاريخ البداية والنهاية أولاً'); return; }
+    if(periodEnd < periodStart){ showToast('تاريخ النهاية لازم يكون بعد تاريخ البداية'); return; }
     periodLabel = 'أسبوع ' + periodStart + ' إلى ' + periodEnd;
     workingDays = countWorkingDaysInRange(periodStart, periodEnd);
   }
