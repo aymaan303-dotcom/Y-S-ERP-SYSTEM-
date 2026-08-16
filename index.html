@@ -1507,10 +1507,20 @@
             </div>
 
             <div class="panel" style="margin-top:20px;">
-              <div class="panel-head"><h3>📊 التقرير الشهري لكل موظف</h3></div>
+              <div class="panel-head"><h3>📊 تقرير الحضور لكل موظف</h3></div>
               <div class="toolbar">
-                <label style="font-size:13px; color:var(--muted);">الشهر:</label>
+                <label style="font-size:13px; color:var(--muted);">نوع الفترة:</label>
+                <select id="attendanceReportFrequency" onchange="toggleAttendanceReportPeriodInput()">
+                  <option value="monthly">شهري</option>
+                  <option value="weekly">أسبوعي</option>
+                </select>
                 <input type="month" id="attendanceReportMonth">
+                <span id="attendanceReportWeekFields" style="display:none; align-items:center; gap:8px;">
+                  <label style="font-size:13px; color:var(--muted);">من</label>
+                  <input type="date" id="attendanceReportWeekStart">
+                  <label style="font-size:13px; color:var(--muted);">إلى</label>
+                  <input type="date" id="attendanceReportWeekEnd">
+                </span>
                 <button class="btn btn-primary" style="width:auto;" onclick="renderAttendanceMonthlyReport()">عرض التقرير</button>
                 <div class="grow"></div>
                 <button class="btn btn-ghost" style="width:auto;" onclick="printAttendanceMonthlyReport()">🖨️ طباعة</button>
@@ -1521,7 +1531,7 @@
                   <tbody id="attendanceMonthlyReportBody"></tbody>
                 </table>
               </div>
-              <div class="empty-state" id="attendanceMonthlyReportEmpty" style="display:none;">اختر الشهر واضغط "عرض التقرير"</div>
+              <div class="empty-state" id="attendanceMonthlyReportEmpty" style="display:none;">اختر الفترة واضغط "عرض التقرير"</div>
             </div>
           </div>
 
@@ -4564,25 +4574,50 @@ async function renderAttendanceTable(){
 
 let lastAttendanceMonthlyReport = null;
 
-/* بيحسب لكل موظف نشط: أيام الحضور الفعلية، أيام الغياب (أيام الشهر عدا الجمعة ناقص أيام الحضور)،
-   وإجمالي دقائق التأخير والانصراف المبكر خلال الشهر المختار بالكامل */
+function toggleAttendanceReportPeriodInput(){
+  const isWeekly = document.getElementById('attendanceReportFrequency').value === 'weekly';
+  document.getElementById('attendanceReportMonth').style.display = isWeekly ? 'none' : 'inline-block';
+  document.getElementById('attendanceReportWeekFields').style.display = isWeekly ? 'inline-flex' : 'none';
+  if(isWeekly && !document.getElementById('attendanceReportWeekStart').value){
+    const today = new Date();
+    const dow = today.getDay();
+    const daysSinceSaturday = (dow + 1) % 7;
+    const saturday = new Date(today);
+    saturday.setDate(today.getDate() - daysSinceSaturday);
+    const friday = new Date(saturday);
+    friday.setDate(saturday.getDate() + 6);
+    document.getElementById('attendanceReportWeekStart').value = dateToStr(saturday);
+    document.getElementById('attendanceReportWeekEnd').value = dateToStr(friday);
+  }
+}
+
+/* بيحسب لكل موظف نشط: أيام الحضور الفعلية، أيام الغياب (أيام الفترة عدا الجمعة ناقص أيام الحضور)،
+   وإجمالي دقائق التأخير والانصراف المبكر خلال الفترة المختارة (شهر أو أسبوع بتواريخ يدوية) */
 async function renderAttendanceMonthlyReport(){
-  const monthStr = document.getElementById('attendanceReportMonth').value || new Date().toISOString().slice(0,7);
+  const frequency = document.getElementById('attendanceReportFrequency').value === 'weekly' ? 'weekly' : 'monthly';
   const tbody = document.getElementById('attendanceMonthlyReportBody');
   const emptyEl = document.getElementById('attendanceMonthlyReportEmpty');
+
+  let periodStart, periodEnd, periodLabel, workingDays;
+  if(frequency === 'monthly'){
+    const monthStr = document.getElementById('attendanceReportMonth').value || new Date().toISOString().slice(0,7);
+    const [y, m] = monthStr.split('-').map(Number);
+    const daysInMonth = new Date(y, m, 0).getDate();
+    periodStart = monthStr + '-01';
+    periodEnd = monthStr + '-' + String(daysInMonth).padStart(2,'0');
+    periodLabel = monthStr;
+    workingDays = countWorkingDaysInMonth(y, m - 1);
+  }else{
+    periodStart = document.getElementById('attendanceReportWeekStart').value;
+    periodEnd = document.getElementById('attendanceReportWeekEnd').value;
+    if(!periodStart || !periodEnd){ showToast('اختر تاريخ البداية والنهاية أولاً'); return; }
+    if(periodEnd < periodStart){ showToast('تاريخ النهاية لازم يكون بعد تاريخ البداية'); return; }
+    periodLabel = periodStart + ' إلى ' + periodEnd;
+    workingDays = countWorkingDaysInRange(periodStart, periodEnd);
+  }
+
   tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--muted);">جاري الحساب...</td></tr>';
   emptyEl.style.display = 'none';
-
-  const [y, m] = monthStr.split('-').map(Number);
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const periodStart = monthStr + '-01';
-  const periodEnd = monthStr + '-' + String(daysInMonth).padStart(2,'0');
-
-  // عدد أيام العمل في الشهر (كل الأيام عدا الجمعة، بنفس منطق حساب الرواتب)
-  let workingDays = 0;
-  for(let d = 1; d <= daysInMonth; d++){
-    if(new Date(y, m-1, d).getDay() !== 5) workingDays++;
-  }
 
   const activeEmployees = allEmployees.filter(e => e.status !== 'inactive');
   if(!activeEmployees.length){
@@ -4592,21 +4627,25 @@ async function renderAttendanceMonthlyReport(){
     return;
   }
 
+  // كويري واحد بس على مدى التاريخ (من غير شرط employeeId معاه) عشان نتفادى الحاجة لعمل Composite Index
+  // يدوي في Firestore، وبعدين بنفلتر لكل موظف في الذاكرة (نفس الأسلوب المستخدم في حساب الرواتب)
+  const periodSnap = await db.collection('attendance')
+    .where('date','>=', periodStart)
+    .where('date','<=', periodEnd)
+    .get();
+  const periodAttendance = periodSnap.docs.map(d => d.data());
+
   const results = [];
   for(const emp of activeEmployees){
-    const snap = await db.collection('attendance')
-      .where('employeeId','==', emp.id)
-      .where('date','>=', periodStart)
-      .where('date','<=', periodEnd)
-      .get();
-    const daysPresent = snap.size;
-    const totalLateMinutes = snap.docs.reduce((sum, d) => sum + (d.data().lateMinutes || 0), 0);
-    const totalEarlyMinutes = snap.docs.reduce((sum, d) => sum + (d.data().earlyMinutes || 0), 0);
+    const empRecords = periodAttendance.filter(r => r.employeeId === emp.id);
+    const daysPresent = empRecords.length;
+    const totalLateMinutes = empRecords.reduce((sum, r) => sum + (r.lateMinutes || 0), 0);
+    const totalEarlyMinutes = empRecords.reduce((sum, r) => sum + (r.earlyMinutes || 0), 0);
     const daysAbsent = Math.max(0, workingDays - daysPresent);
     results.push({ name: emp.name, daysPresent, daysAbsent, totalLateMinutes, totalEarlyMinutes });
   }
   results.sort((a,b) => a.name.localeCompare(b.name));
-  lastAttendanceMonthlyReport = { monthStr, workingDays, results };
+  lastAttendanceMonthlyReport = { monthStr: periodLabel, workingDays, results };
 
   tbody.innerHTML = results.map(r => `
     <tr>
@@ -4629,7 +4668,7 @@ function printAttendanceMonthlyReport(){
 
   document.getElementById('printArea').innerHTML = `
     ${printLogoHeaderHtml()}
-    <h2>التقرير الشهري للحضور والانصراف — ${escapeHtml(monthStr)}</h2>
+    <h2>تقرير الحضور والانصراف — ${escapeHtml(monthStr)}</h2>
     <table>
       <thead><tr><th>الموظف</th><th>أيام حضور</th><th>أيام غياب</th><th>إجمالي دقائق التأخير</th><th>إجمالي دقائق الانصراف المبكر</th></tr></thead>
       <tbody>${rowsHtml}</tbody>
