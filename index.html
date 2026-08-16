@@ -908,6 +908,51 @@
               </div>
               <div id="attendanceLocationStatus" style="font-size:12px; color:var(--muted); margin-top:8px;"></div>
             </div>
+
+            <div class="panel" style="margin-top:16px;">
+              <div class="panel-head"><h3>💸 إعدادات خصومات الرواتب</h3></div>
+              <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
+                حدد إزاي تحب النظام يحسب خصم الغياب والتأخير والانصراف المبكر. الإعداد ده بيتطبق على كل عملية "احسب الرواتب" جديدة.
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:end;">
+                <div class="field">
+                  <label>طريقة خصم يوم الغياب</label>
+                  <select id="absenceDeductionMode" onchange="toggleDeductionInputs()">
+                    <option value="fullDay">أجر اليوم كامل (الراتب ÷ أيام العمل)</option>
+                    <option value="fixedAmount">مبلغ ثابت لكل يوم غياب</option>
+                  </select>
+                </div>
+                <div class="field" id="absenceFixedAmountField" style="display:none;">
+                  <label>قيمة الخصم عن كل يوم غياب (ج.م)</label>
+                  <input type="number" id="absenceFixedAmount" min="0" placeholder="مثال: 100">
+                </div>
+
+                <div class="field">
+                  <label>طريقة خصم التأخير</label>
+                  <select id="lateDeductionMode" onchange="toggleDeductionInputs()">
+                    <option value="proportional">نسبي من أجر الساعة حسب دقائق التأخير</option>
+                    <option value="fixedPerHour">مبلغ ثابت عن كل ساعة تأخير</option>
+                  </select>
+                </div>
+                <div class="field" id="lateHourlyRateField" style="display:none;">
+                  <label>قيمة الخصم عن كل ساعة تأخير (ج.م)</label>
+                  <input type="number" id="lateHourlyRate" min="0" placeholder="مثال: 20">
+                </div>
+
+                <div class="field">
+                  <label>طريقة خصم الانصراف المبكر</label>
+                  <select id="earlyDeductionMode" onchange="toggleDeductionInputs()">
+                    <option value="proportional">نسبي من أجر الساعة حسب دقائق الانصراف المبكر</option>
+                    <option value="fixedPerHour">مبلغ ثابت عن كل ساعة انصراف مبكر</option>
+                  </select>
+                </div>
+                <div class="field" id="earlyHourlyRateField" style="display:none;">
+                  <label>قيمة الخصم عن كل ساعة انصراف مبكر (ج.م)</label>
+                  <input type="number" id="earlyHourlyRate" min="0" placeholder="مثال: 20">
+                </div>
+              </div>
+              <button class="btn btn-primary" style="width:auto; margin-top:6px;" onclick="saveDeductionSettings()">حفظ إعدادات الخصومات</button>
+            </div>
           </div>
 
           <div id="settab-users" style="display:none;">
@@ -1469,8 +1514,10 @@
             </div>
             <p style="font-size:12px; color:var(--muted); margin-bottom:10px;">
               الحساب مبني على أيام الفترة بالكامل عدا الجمعة (يوم إجازة أسبوعية)، ويوم عمل قياسي = 8 ساعات.
-              خصم الغياب = أجر اليوم كامل. خصم التأخير = نسبي من أجر اليوم حسب دقائق التأخير.
+              طريقة حساب خصم الغياب والتأخير والانصراف المبكر بتُحدد من صفحة "الإعدادات ← إعدادات خصومات الرواتب".
               خصم السلف يُكتب يدويًا لكل موظف قبل الاعتماد (مش بيتحسب تلقائي).
+              <br>ملاحظة: عند اختيار "أسبوعي"، أسبوع الشغل الفعلي المحسوب بيبدأ يوم السبت وينتهي يوم الجمعة
+              (مش زي شكل التقويم اللي بيظهره المتصفح من الاثنين للأحد) — التاريخ الفعلي هيظهر تحت في تسمية الفترة بعد الحساب.
             </p>
             <div class="table-wrap">
               <table class="data-table">
@@ -4682,7 +4729,9 @@ function countWorkingDaysInMonth(year, monthIndex){
   return count;
 }
 
-/* بيحول قيمة input[type=week] بصيغة "YYYY-Www" لتاريخ بداية (الاثنين) ونهاية (الأحد) الأسبوع ده */
+/* بيحول قيمة input[type=week] بصيغة "YYYY-Www" لتاريخ بداية (السبت) ونهاية (الجمعة) أسبوع العمل،
+   لأن أسبوع الشغل عندنا بيبدأ السبت والجمعة هي يوم الإجازة الوحيد (مش زي الأسبوع الميلادي المعياري
+   اللي بيبدأ الاثنين وبيخلص الأحد اللي بيديه الـ input الأصلي) */
 function isoWeekToDateRange(weekStr){
   const [yearStr, weekPart] = weekStr.split('-W');
   const year = parseInt(yearStr, 10);
@@ -4691,9 +4740,11 @@ function isoWeekToDateRange(weekStr){
   const dow = simple.getUTCDay() || 7; // الأحد = 0 نخليها 7
   const monday = new Date(simple);
   monday.setUTCDate(simple.getUTCDate() - dow + 1);
-  const sunday = new Date(monday);
-  sunday.setUTCDate(monday.getUTCDate() + 6);
-  return { start: monday, end: sunday };
+  const saturday = new Date(monday);
+  saturday.setUTCDate(monday.getUTCDate() - 2); // السبت قبل الاثنين بيومين = بداية أسبوع الشغل
+  const friday = new Date(saturday);
+  friday.setUTCDate(saturday.getUTCDate() + 6); // الجمعة هي آخر يوم في أسبوع الشغل (يوم الإجازة)
+  return { start: saturday, end: friday };
 }
 function dateToStr(d){ return d.toISOString().slice(0,10); }
 
@@ -4763,9 +4814,18 @@ async function calculatePayroll(){
     const daysAbsent = Math.max(0, workingDays - daysPresent);
 
     const dailyRate = workingDays > 0 ? emp.monthlySalary / workingDays : 0;
-    const absenceDeduction = daysAbsent * dailyRate;
-    const lateDeduction = (totalLateMinutes / (8 * 60)) * dailyRate;
-    const earlyDeduction = (totalEarlyMinutes / (8 * 60)) * dailyRate;
+
+    const absenceDeduction = companySettingsCache.absenceDeductionMode === 'fixedAmount'
+      ? daysAbsent * (companySettingsCache.absenceFixedAmount || 0)
+      : daysAbsent * dailyRate;
+
+    const lateDeduction = companySettingsCache.lateDeductionMode === 'fixedPerHour'
+      ? (totalLateMinutes / 60) * (companySettingsCache.lateHourlyRate || 0)
+      : (totalLateMinutes / (8 * 60)) * dailyRate;
+
+    const earlyDeduction = companySettingsCache.earlyDeductionMode === 'fixedPerHour'
+      ? (totalEarlyMinutes / 60) * (companySettingsCache.earlyHourlyRate || 0)
+      : (totalEarlyMinutes / (8 * 60)) * dailyRate;
 
     // الرصيد المتبقي من السلف المفتوحة — للعرض فقط كتذكير، مش بيتحسب تلقائي في الصافي
     const empAdvances = allAdvances.filter(a => a.employeeId === emp.id && a.remainingBalance > 0);
@@ -4906,7 +4966,34 @@ function printPayrollReport(){
 }
 
 /* ---------- Settings page ---------- */
-let companySettingsCache = { autoApprovalLimit: 0, maxDiscountAmount: 0, purchaseAutoApprovalLimit: 0, attendanceLat: null, attendanceLng: null, attendanceRadius: 0, name: '', phone: '', address: '', tax: '' };
+let companySettingsCache = { autoApprovalLimit: 0, maxDiscountAmount: 0, purchaseAutoApprovalLimit: 0, attendanceLat: null, attendanceLng: null, attendanceRadius: 0, name: '', phone: '', address: '', tax: '',
+  absenceDeductionMode: 'fullDay', absenceFixedAmount: 0,
+  lateDeductionMode: 'proportional', lateHourlyRate: 0,
+  earlyDeductionMode: 'proportional', earlyHourlyRate: 0 };
+
+function toggleDeductionInputs(){
+  const absenceMode = document.getElementById('absenceDeductionMode').value;
+  document.getElementById('absenceFixedAmountField').style.display = absenceMode === 'fixedAmount' ? 'block' : 'none';
+  const lateMode = document.getElementById('lateDeductionMode').value;
+  document.getElementById('lateHourlyRateField').style.display = lateMode === 'fixedPerHour' ? 'block' : 'none';
+  const earlyMode = document.getElementById('earlyDeductionMode').value;
+  document.getElementById('earlyHourlyRateField').style.display = earlyMode === 'fixedPerHour' ? 'block' : 'none';
+}
+
+async function saveDeductionSettings(){
+  const absenceDeductionMode = document.getElementById('absenceDeductionMode').value;
+  const absenceFixedAmount = parseFloat(document.getElementById('absenceFixedAmount').value) || 0;
+  const lateDeductionMode = document.getElementById('lateDeductionMode').value;
+  const lateHourlyRate = parseFloat(document.getElementById('lateHourlyRate').value) || 0;
+  const earlyDeductionMode = document.getElementById('earlyDeductionMode').value;
+  const earlyHourlyRate = parseFloat(document.getElementById('earlyHourlyRate').value) || 0;
+  await db.collection('settings').doc('company').set({
+    absenceDeductionMode, absenceFixedAmount, lateDeductionMode, lateHourlyRate, earlyDeductionMode, earlyHourlyRate
+  }, { merge: true });
+  Object.assign(companySettingsCache, { absenceDeductionMode, absenceFixedAmount, lateDeductionMode, lateHourlyRate, earlyDeductionMode, earlyHourlyRate });
+  showToast('تم حفظ إعدادات خصومات الرواتب');
+  await logAction('settings', 'تحديث إعدادات خصومات الرواتب', '');
+}
 
 async function saveCompany(){
   const name = document.getElementById('companyName').value.trim();
@@ -4979,6 +5066,21 @@ async function loadCompany(){
       document.getElementById('attendanceLat').value = companySettingsCache.attendanceLat != null ? companySettingsCache.attendanceLat : '';
       document.getElementById('attendanceLng').value = companySettingsCache.attendanceLng != null ? companySettingsCache.attendanceLng : '';
       document.getElementById('attendanceRadius').value = companySettingsCache.attendanceRadius || 150;
+    }
+    companySettingsCache.absenceDeductionMode = d.absenceDeductionMode || 'fullDay';
+    companySettingsCache.absenceFixedAmount = d.absenceFixedAmount || 0;
+    companySettingsCache.lateDeductionMode = d.lateDeductionMode || 'proportional';
+    companySettingsCache.lateHourlyRate = d.lateHourlyRate || 0;
+    companySettingsCache.earlyDeductionMode = d.earlyDeductionMode || 'proportional';
+    companySettingsCache.earlyHourlyRate = d.earlyHourlyRate || 0;
+    if(document.getElementById('absenceDeductionMode')){
+      document.getElementById('absenceDeductionMode').value = companySettingsCache.absenceDeductionMode;
+      document.getElementById('absenceFixedAmount').value = companySettingsCache.absenceFixedAmount;
+      document.getElementById('lateDeductionMode').value = companySettingsCache.lateDeductionMode;
+      document.getElementById('lateHourlyRate').value = companySettingsCache.lateHourlyRate;
+      document.getElementById('earlyDeductionMode').value = companySettingsCache.earlyDeductionMode;
+      document.getElementById('earlyHourlyRate').value = companySettingsCache.earlyHourlyRate;
+      toggleDeductionInputs();
     }
   }
 }
