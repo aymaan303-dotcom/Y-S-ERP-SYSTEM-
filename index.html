@@ -9825,7 +9825,11 @@ function removeMfgExtraCostRow(idx){
 }
 function updateMfgExtraCostRow(idx, field, value){
   mfgExtraCostItems[idx][field] = field === 'label' ? value : (parseFloat(value) || 0);
-  renderMfgExtraCostRows();
+  // تحديث البيانات + السطر الحالي فقط من غير إعادة بناء كل الصفوف (عشان الـ input ميفقدش التركيز أثناء الكتابة)
+  const it = mfgExtraCostItems[idx];
+  const amountEl = document.getElementById('mfgExtraCostAmount' + idx);
+  if(amountEl) amountEl.textContent = fmt(it.qty * it.price);
+  renderMfgSummary();
 }
 function renderMfgExtraCostRows(){
   const box = document.getElementById('mfgExtraCostRows');
@@ -9838,7 +9842,7 @@ function renderMfgExtraCostRows(){
         <span style="color:var(--muted);">×</span>
         <input type="number" placeholder="السعر" value="${it.price}" min="0" step="0.01" style="flex:1;" oninput="updateMfgExtraCostRow(${idx},'price',this.value)">
         <span style="color:var(--muted);">=</span>
-        <b style="flex:1; text-align:center; font-size:13px;">${fmt(it.qty * it.price)}</b>
+        <b id="mfgExtraCostAmount${idx}" style="flex:1; text-align:center; font-size:13px;">${fmt(it.qty * it.price)}</b>
         <span class="btn-icon danger" onclick="removeMfgExtraCostRow(${idx})" title="حذف البند">✕</span>
       </div>
     </div>`).join('') || '<div style="color:var(--muted); font-size:12.5px; margin-bottom:6px;">لا توجد تكاليف إضافية — دوس "+ إضافة بند تكلفة" لو فيه (زي ليزر، نقل، عمالة...)</div>';
@@ -10683,7 +10687,8 @@ async function getNextManufacturingOrderNumber(){
 async function saveManufacturingOrder(btn){
   await withSaveGuard(btn, async () => {
     try{
-      if(!mfgRawCart.length){ showToast('أضف خامة واحدة على الأقل'); return; }
+      const hasValidExtraCost = mfgExtraCostItems.some(it => it.label.trim() && (parseFloat(it.qty)||0) > 0 && (parseFloat(it.price)||0) > 0);
+      if(!mfgRawCart.length && !hasValidExtraCost){ showToast('أضف خامة واحدة على الأقل (من المخزن أو كتكلفة إضافية)'); return; }
       const warehouseId = document.getElementById('mfgWarehouse').value;
       if(!warehouseId){ showToast('اختار المخزن'); return; }
       const warehouse = allWarehouses.find(w => w.id === warehouseId);
