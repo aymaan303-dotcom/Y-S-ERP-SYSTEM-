@@ -3772,20 +3772,13 @@ function startDashboardListeners(){
   );
 
   // فواتير بيع آجلة مستحقة التحصيل قريبًا (خلال 3 أيام) أو متأخرة ولسه ما اتحصّلتش
+  // بنتأكد كمان إن رصيد العميل الحالي لسه فعلاً موجب، عشان لو اتسدد بسند قبض عام
+  // (مش مربوط بالفاتورة دي تحديدًا) منعرضهاش في التنبيهات رغم إن علامة "collected" ممكن تكون لسه متسجلتش
+  ensurePartiesLoaded();
   unsubscribers.push(
     db.collection('salesInvoices').where('paymentType','==','credit').onSnapshot(snap => {
-      const todayStr = new Date().toISOString().slice(0,10);
-      const in3 = new Date(); in3.setDate(in3.getDate() + 3);
-      const in3Str = in3.toISOString().slice(0,10);
-      let dueList = [];
-      snap.forEach(doc => {
-        const d = doc.data();
-        if(d.collected || !d.dueDate || d.status !== 'confirmed') return;
-        if(scopeWarehouseId && d.warehouseId && d.warehouseId !== scopeWarehouseId) return;
-        if(d.dueDate <= in3Str) dueList.push({ id: doc.id, number: d.number, customerName: d.customerName, total: d.total, dueDate: d.dueDate });
-      });
-      dueList.sort((a,b) => a.dueDate.localeCompare(b.dueDate));
-      updateAlerts({ invoicesDue: dueList });
+      lastCreditInvoicesRaw = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recomputeInvoicesDueAlerts();
     }, () => {})
   );
 
@@ -3860,6 +3853,27 @@ async function recomputeMonthlyNetProfit(){
 }
 
 let alertsState = { lowStock: [], checksDue: 0, invoicesDue: [] };
+let lastCreditInvoicesRaw = [];
+
+/* بيعيد حساب قائمة الفواتير الآجلة المستحقة (قريبًا أو متأخرة) من آخر نسخة محفوظة من فواتير البيع
+   الآجلة + آخر أرصدة العملاء. بيتنادى مرتين: أول ما فواتير البيع الآجلة تتغير، وأول ما رصيد أي عميل
+   يتغير (زي لما يتسدد بسند قبض عام)، عشان الفاتورة تختفي من التنبيهات فورًا لما رصيد عميلها يبقى صفر */
+function recomputeInvoicesDueAlerts(){
+  const todayStr = new Date().toISOString().slice(0,10);
+  const in3 = new Date(); in3.setDate(in3.getDate() + 3);
+  const in3Str = in3.toISOString().slice(0,10);
+  let dueList = [];
+  lastCreditInvoicesRaw.forEach(d => {
+    if(d.collected || !d.dueDate || d.status !== 'confirmed') return;
+    if(scopeWarehouseId && d.warehouseId && d.warehouseId !== scopeWarehouseId) return;
+    const cust = allCustomers.find(c => c.id === d.customerId);
+    if(cust && (cust.balance || 0) <= 0) return; // العميل مالوش رصيد مدين حاليًا = الفاتورة اتسددت فعليًا
+    if(d.dueDate <= in3Str) dueList.push({ id: d.id, number: d.number, customerName: d.customerName, total: d.total, dueDate: d.dueDate });
+  });
+  dueList.sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+  updateAlerts({ invoicesDue: dueList });
+}
+
 function updateAlerts(partial){
   alertsState = { ...alertsState, ...partial };
   const list = document.getElementById('alertsList');
@@ -6652,6 +6666,7 @@ function ensurePartiesLoaded(){
     allCustomers = []; snap.forEach(d => allCustomers.push({ id:d.id, ...d.data() }));
     renderPartyTable(); fillCustomerSelects(); fillQuoteCustomerSelect();
     if(document.getElementById('checksTableBody')) renderChecksTable();
+    if(typeof recomputeInvoicesDueAlerts === 'function') recomputeInvoicesDueAlerts();
   }, err => showLoadError('قائمة العملاء', err));
   db.collection('suppliers').orderBy('createdAt','desc').onSnapshot(snap => {
     allSuppliers = []; snap.forEach(d => allSuppliers.push({ id:d.id, ...d.data() }));
