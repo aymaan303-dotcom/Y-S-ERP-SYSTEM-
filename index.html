@@ -2255,7 +2255,8 @@
                 <div class="field" id="mfgOutputCountField"><label>عدد القطع الناتج</label><input type="number" id="mfgOutputCount" min="0" step="1" value="0" oninput="renderMfgSummary()"></div>
                 <div class="field"><label>سعر بيع مقترح (اختياري، تقدر تغيّره وقت البيع الفعلي)</label><input type="number" id="mfgOutputSellPrice" min="0" step="0.01" placeholder="سعر بيع مبدئي للكجم أو للقطعة حسب الاحتساب فوق"></div>
 
-                <div class="summary-line"><span>إجمالي التكلفة (خامات + إضافية)</span><b id="mfgTotalCost">0.00</b></div>
+                <div class="summary-line"><span>إجمالي التكلفة (خامات + إضافية − بواقي)</span><b id="mfgTotalCost">0.00</b></div>
+                <div class="summary-line" style="font-size:11.5px; color:var(--muted);"><span>* بيتخصم منها قيمة أي بواقي مسجّلة في قسم (3) تحت</span></div>
                 <div class="summary-line total"><span>تكلفة الوحدة الناتجة</span><b id="mfgUnitCost">0.00</b></div>
 
                 <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="saveManufacturingOrder(this)">تنفيذ أمر التصنيع</button>
@@ -5437,6 +5438,7 @@ function ensureWarehousesLoaded(){
 function loadWarehousesPage(){
   ensureItemsLoaded();
   ensureWarehousesLoaded();
+  ensurePendingManufacturingLoaded();
   renderWarehousesTable();
   fillItemSelects();
   computeWarehouseProfits();
@@ -6239,7 +6241,8 @@ function renderWarehousesTable(){
   document.querySelectorAll('.admin-only-col').forEach(el => el.style.display = isAdmin ? 'table-cell' : 'none');
 
   tbody.innerHTML = allWarehouses.map(w => {
-    const itemCount = Object.keys(stockMap).filter(k => k.endsWith('_' + w.id) && stockMap[k] > 0).length;
+    const pendingMfgInWh = allPendingManufacturing.filter(m => m.warehouseId === w.id && m.qty > 0);
+    const itemCount = Object.keys(stockMap).filter(k => k.endsWith('_' + w.id) && stockMap[k] > 0).length + pendingMfgInWh.length;
 
     let adminCols = '';
     if(isAdmin){
@@ -6251,6 +6254,8 @@ function renderWarehousesTable(){
         const costPerBase = itemCostPerBase(it, u);
         invValue += costPerBase * qty;
       });
+      // قيمة بضاعة "تصنيع معلق" (منتجات جاهزة للبيع ناتجة من أوامر تصنيع) الموجودة فعليًا في هذا المخزن
+      invValue += pendingMfgInWh.reduce((s, m) => s + (m.qty || 0) * (m.buyPrice || 0), 0);
       const p = warehouseProfitCache[w.id];
       const monthProfitHtml = p ? `<b style="color:${p.monthProfit >= 0 ? 'var(--green)' : 'var(--red)'}; cursor:pointer; text-decoration:underline dotted;" title="اعرض تفاصيل فواتير الشهر" onclick="openWarehouseProfitDetails('${w.id}','month')">${fmt(p.monthProfit)} ج</b>` : '<span style="color:var(--muted);">...</span>';
       const yearProfitHtml = p ? `<b style="color:${p.yearProfit >= 0 ? 'var(--green)' : 'var(--red)'}; cursor:pointer; text-decoration:underline dotted;" title="اعرض تفاصيل فواتير السنة" onclick="openWarehouseProfitDetails('${w.id}','year')">${fmt(p.yearProfit)} ج</b>` : '<span style="color:var(--muted);">...</span>';
@@ -6290,6 +6295,11 @@ function openWarehouseDetails(warehouseId){
     const value = costPerBase * qty;
     totalValue += value;
     rows.push({ name: it.name, category: it.category || '—', qty, unitLabel: (it.baseUnitType === 'count') ? 'قطعة' : 'كجم', value });
+  });
+  allPendingManufacturing.filter(m => m.warehouseId === warehouseId && m.qty > 0).forEach(m => {
+    const value = (m.qty || 0) * (m.buyPrice || 0);
+    totalValue += value;
+    rows.push({ name: m.name + ' (تصنيع معلق)', category: 'تصنيع معلق', qty: m.qty, unitLabel: 'قطعة', value });
   });
   rows.sort((a,b) => b.value - a.value);
 
@@ -9552,6 +9562,7 @@ function ensurePendingManufacturingLoaded(){
       return tb - ta;
     });
     renderPendingManufacturingTable();
+    if(document.getElementById('warehousesTableBody')) renderWarehousesTable();
   }, err => {
     console.error('pendingManufacturing error:', err);
     const errHtml = `<tr><td colspan="7" style="text-align:center; color:var(--red);">خطأ في تحميل البيانات: ${escapeHtml(err.message)}</td></tr>`;
@@ -10195,7 +10206,13 @@ function renderMfgSummary(){
 
   const extraCost = mfgExtraCostItems.reduce((s,it) => s + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0)), 0);
   document.getElementById('mfgExtraCostTotal').textContent = fmt(extraCost);
-  const totalCost = rawTotal + extraCost;
+
+  // قيمة البواقي الناتجة من هذا الأمر بتتخصم من تكلفة المنتج الرئيسي — لأنها بتتسجل بقيمتها في
+  // رصيد "بواقي التصنيع" المستقل، واللي بيتضاف أصلاً لقيمة المخزون الإجمالية، فلو سبناها من غير خصم
+  // هنا هتتحسب مرتين: مرة كتكلفة داخل المنتج الرئيسي، ومرة كقيمة مستقلة للبواقي.
+  const remnantsValue = mfgRemOutCart.reduce((s,c) => s + ((c.qty || 0) * (c.price || 0)), 0);
+
+  const totalCost = Math.max(0, rawTotal + extraCost - remnantsValue);
   document.getElementById('mfgTotalCost').textContent = fmt(totalCost);
 
   const mode = document.getElementById('mfgOutputMode').value;
@@ -10205,7 +10222,7 @@ function renderMfgSummary(){
   const unitCost = outQty > 0 ? totalCost / outQty : 0;
   document.getElementById('mfgUnitCost').textContent = fmt(unitCost);
 
-  return { rawTotal, extraCost, totalCost, outQty, unitCost, outWeight, outCount, mode };
+  return { rawTotal, extraCost, remnantsValue, totalCost, outQty, unitCost, outWeight, outCount, mode };
 }
 
 /* ---------- بواقي تصنيع ناتجة من الأمر الحالي (اختياري) ---------- */
@@ -10271,6 +10288,7 @@ function renderMfgRemOutTable(){
   }).join('');
   const total = mfgRemOutCart.reduce((s,c) => s + (c.qty * c.price), 0);
   document.getElementById('mfgRemOutTotal').textContent = fmt(total);
+  renderMfgSummary();
 }
 
 /* ---------- رصيد بواقي التصنيع (مستقل عن أصناف/مخازن البرنامج) ---------- */
