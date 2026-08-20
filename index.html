@@ -851,6 +851,7 @@
         <div id="page-settings" style="display:none;">
           <div class="tabs">
             <div class="tab-btn active" data-settab="company" onclick="switchSetTab('company')">بيانات الشركة</div>
+            <div class="tab-btn" data-settab="eta" onclick="switchSetTab('eta')">🧾 الفاتورة الإلكترونية (ETA)</div>
             <div class="tab-btn" data-settab="users" onclick="switchSetTab('users')">المستخدمون والصلاحيات</div>
             <div class="tab-btn" data-settab="audit" onclick="switchSetTab('audit')">سجل العمليات</div>
             <div class="tab-btn" data-settab="trash" onclick="switchSetTab('trash')">🗑 سلة المهملات</div>
@@ -979,6 +980,54 @@
               </div>
 
               <button class="btn btn-primary" style="width:auto; margin-top:14px;" onclick="saveDeductionSettings()">حفظ إعدادات الخصومات</button>
+            </div>
+          </div>
+
+          <div id="settab-eta" style="display:none;">
+            <div class="panel">
+              <div class="panel-head"><h3>🧾 بيانات المنشأة لمنظومة الفاتورة الإلكترونية (ETA)</h3></div>
+              <div style="font-size:12px; color:var(--muted); margin-bottom:14px; line-height:1.7;">
+                البيانات دي هي اللي هتتحط في كل فاتورة إلكترونية بترسلها لمصلحة الضرائب (بيانات المُصدر/العنوان/الفرع). لازم تتطابق حرفيًا مع البيانات المسجّلة على بروفايلك في بوابة ETA، وإلا الفاتورة هترفض.<br>
+                ⚠️ الرقم الضريبي بيتاخد من تبويب "بيانات الشركة" جنب ده — تأكد إنه مسجّل هناك.<br>
+                🔒 <b>ملاحظة أمان مهمة:</b> الصفحة دي مخصصة لبيانات "هوية" المنشأة بس (مش سرية). أي بيانات دخول سرية (Client ID / Client Secret الخاصة بـETA) <u>لازم متتحطش هنا خالص</u> ولا في أي مكان في هذا البرنامج — هتتخزن فقط في إعدادات السيرفر الخلفي (Cloud Function) بعيدًا عن المتصفح، عشان محدش يقدر يوصلها من صفحة الويب.
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                <div class="field">
+                  <label>البيئة الحالية</label>
+                  <select id="etaEnvironment">
+                    <option value="preprod">بيئة الاختبار (Preproduction)</option>
+                    <option value="prod">بيئة الإنتاج (Production)</option>
+                  </select>
+                  <small style="color:var(--muted); font-size:11px;">سيبها على "بيئة الاختبار" لحد ما تتأكد إن كل الفواتير التجريبية بتتقبل صح، وبعدين حوّلها لـ"الإنتاج".</small>
+                </div>
+                <div class="field">
+                  <label>كود النشاط التجاري (Activity Code)</label>
+                  <input type="text" id="etaActivityCode" placeholder="مثال: 4661 (حسب قائمة ETA)">
+                </div>
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-top:10px;">
+                <div class="field"><label>رقم الفرع (Branch ID)</label><input type="text" id="etaBranchId" placeholder="0 = الفرع الرئيسي" value="0"></div>
+                <div class="field"><label>المحافظة (Governorate)</label><input type="text" id="etaGovernorate" placeholder="مثال: القاهرة"></div>
+                <div class="field"><label>المدينة / المنطقة (RegionCity)</label><input type="text" id="etaRegionCity" placeholder="مثال: مدينة نصر"></div>
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-top:10px;">
+                <div class="field"><label>الشارع (Street)</label><input type="text" id="etaStreet" placeholder="اسم الشارع"></div>
+                <div class="field"><label>رقم المبنى (Building Number)</label><input type="text" id="etaBuildingNumber" placeholder="مثال: 12"></div>
+                <div class="field"><label>الرمز البريدي (Postal Code) — اختياري</label><input type="text" id="etaPostalCode" placeholder=""></div>
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-top:10px;">
+                <div class="field"><label>الدور (Floor) — اختياري</label><input type="text" id="etaFloor" placeholder=""></div>
+                <div class="field"><label>الشقة/الغرفة (Room) — اختياري</label><input type="text" id="etaRoom" placeholder=""></div>
+                <div class="field"><label>علامة مميزة (Landmark) — اختياري</label><input type="text" id="etaLandmark" placeholder="مثال: بجوار..."></div>
+              </div>
+              <div class="field" style="margin-top:10px;">
+                <label>معلومات إضافية عن العنوان — اختياري</label>
+                <input type="text" id="etaAdditionalInfo" placeholder="">
+              </div>
+              <button class="btn btn-primary" style="width:auto; margin-top:14px;" onclick="saveEtaSettings()">حفظ بيانات ETA</button>
+              <div style="font-size:11px; color:var(--muted); margin-top:10px;">
+                💡 الخطوة الجاية بعد حفظ البيانات دي: ترميز كل صنف بكود EGS معتمد من ETA، وتجهيز جسر التوقيع المحلي (التوكن).
+              </div>
             </div>
           </div>
 
@@ -2358,6 +2407,11 @@
       <div class="field"><label>التصنيف</label><input type="text" id="itemCategory" placeholder="مثال: مواد بناء"></div>
       <div class="field"><label>الموقع في المخزن</label><input type="text" id="itemLocation" placeholder="مثال: الحامل الخارجي"></div>
     </div>
+    <div class="field">
+      <label>كود EGS / GS1 للفاتورة الإلكترونية (ETA) — اختياري</label>
+      <input type="text" id="itemEgsCode" placeholder="كود الصنف المعتمد من ETA">
+      <small style="color:var(--muted); font-size:11px;">لازم تسجّله قبل إصدار أي فاتورة ضريبية إلكترونية على هذا الصنف — من غيره الفاتورة هترفض من ETA.</small>
+    </div>
     <div class="field"><label>الحد الأدنى للمخزون</label><input type="number" id="itemMinStock" min="0" step="0.001" value="0"></div>
 
     <!-- الكمية الحالية: بتظهر بس عند إضافة صنف جديد، لتحديد مخزون افتتاحي.
@@ -2554,6 +2608,10 @@
       <div class="field" id="partyCreditField"><label>الحد الائتماني</label><input type="number" id="partyCreditLimit" value="0" min="0"></div>
     </div>
     <div class="field"><label>العنوان</label><input type="text" id="partyAddress" placeholder="اختياري"></div>
+    <div class="field">
+      <label>الرقم الضريبي (RIN) — لازم للفاتورة الإلكترونية B2B</label>
+      <input type="text" id="partyTaxId" placeholder="اختياري للعميل الفردي، إلزامي للشركات">
+    </div>
     <div class="field"><label>المخزن / الفرع التابع له</label>
       <select id="partyWarehouseId">
         <option value="">-- مشترك لجميع المخازن --</option>
@@ -5215,6 +5273,34 @@ async function saveCompany(){
   renderCartTable();
 }
 
+/* بيانات هوية المنشأة اللازمة لبناء مستند الفاتورة الإلكترونية (ETA) — عنوان + فرع + نشاط + بيئة التشغيل.
+   ملحوظة أمان: دي بيانات "هوية" فقط (مش سرية) — بيانات الدخول السرية (Client ID/Secret) ممنوع تتخزن هنا
+   أو في أي جزء من هذا الملف، لازم تفضل في إعدادات السيرفر الخلفي (Cloud Function) بعيدة عن المتصفح. */
+async function saveEtaSettings(){
+  const etaConfig = {
+    environment: document.getElementById('etaEnvironment').value,
+    activityCode: document.getElementById('etaActivityCode').value.trim(),
+    branchId: document.getElementById('etaBranchId').value.trim() || '0',
+    governorate: document.getElementById('etaGovernorate').value.trim(),
+    regionCity: document.getElementById('etaRegionCity').value.trim(),
+    street: document.getElementById('etaStreet').value.trim(),
+    buildingNumber: document.getElementById('etaBuildingNumber').value.trim(),
+    postalCode: document.getElementById('etaPostalCode').value.trim(),
+    floor: document.getElementById('etaFloor').value.trim(),
+    room: document.getElementById('etaRoom').value.trim(),
+    landmark: document.getElementById('etaLandmark').value.trim(),
+    additionalInfo: document.getElementById('etaAdditionalInfo').value.trim(),
+  };
+  if(!etaConfig.activityCode || !etaConfig.governorate || !etaConfig.regionCity || !etaConfig.street || !etaConfig.buildingNumber){
+    showToast('من فضلك اكمل الحقول الأساسية (النشاط، المحافظة، المدينة، الشارع، رقم المبنى) قبل الحفظ');
+    return;
+  }
+  await db.collection('settings').doc('company').set({ etaConfig }, { merge: true });
+  companySettingsCache.etaConfig = etaConfig;
+  showToast('تم حفظ بيانات الفاتورة الإلكترونية');
+  await logAction('settings', 'تحديث بيانات ETA', 'بيئة: ' + (etaConfig.environment === 'prod' ? 'إنتاج' : 'اختبار'));
+}
+
 function useCurrentLocationForCompany(){
   const statusEl = document.getElementById('attendanceLocationStatus');
   statusEl.textContent = 'جاري تحديد موقعك الحالي...';
@@ -5279,6 +5365,24 @@ async function loadCompany(){
     companySettingsCache.overtimeMaxMinutes = d.overtimeMaxMinutes || 90;
     companySettingsCache.overtimeHourlyRate = d.overtimeHourlyRate || 0;
     pendingLateTiers = companySettingsCache.lateDeductionTiers.map(t => ({ ...t }));
+
+    // بيانات هوية المنشأة لمنظومة ETA
+    const etaConfig = d.etaConfig || {};
+    companySettingsCache.etaConfig = etaConfig;
+    if(document.getElementById('etaEnvironment')){
+      document.getElementById('etaEnvironment').value = etaConfig.environment || 'preprod';
+      document.getElementById('etaActivityCode').value = etaConfig.activityCode || '';
+      document.getElementById('etaBranchId').value = etaConfig.branchId || '0';
+      document.getElementById('etaGovernorate').value = etaConfig.governorate || '';
+      document.getElementById('etaRegionCity').value = etaConfig.regionCity || '';
+      document.getElementById('etaStreet').value = etaConfig.street || '';
+      document.getElementById('etaBuildingNumber').value = etaConfig.buildingNumber || '';
+      document.getElementById('etaPostalCode').value = etaConfig.postalCode || '';
+      document.getElementById('etaFloor').value = etaConfig.floor || '';
+      document.getElementById('etaRoom').value = etaConfig.room || '';
+      document.getElementById('etaLandmark').value = etaConfig.landmark || '';
+      document.getElementById('etaAdditionalInfo').value = etaConfig.additionalInfo || '';
+    }
     if(document.getElementById('absenceDeductionMode')){
       document.getElementById('absenceDeductionMode').value = companySettingsCache.absenceDeductionMode;
       document.getElementById('absenceFixedAmount').value = companySettingsCache.absenceFixedAmount;
@@ -5344,7 +5448,7 @@ function renderUsersTable(){
 
 function switchSetTab(tab){
   document.querySelectorAll('.tab-btn[data-settab]').forEach(el => el.classList.toggle('active', el.dataset.settab === tab));
-  ['company','users','audit','trash','backup','newperiod'].forEach(t => document.getElementById('settab-' + t).style.display = t === tab ? 'block' : 'none');
+  ['company','eta','users','audit','trash','backup','newperiod'].forEach(t => document.getElementById('settab-' + t).style.display = t === tab ? 'block' : 'none');
   if(tab === 'audit') ensureAuditLogLoaded();
   if(tab === 'trash') ensureTrashLoaded();
   if(tab === 'backup') loadLastAutoBackupLabel();
@@ -5747,6 +5851,7 @@ function openItemModal(itemId){
     document.getElementById('itemName').value = it.name || '';
     document.getElementById('itemCategory').value = it.category || '';
     document.getElementById('itemLocation').value = it.location || '';
+    document.getElementById('itemEgsCode').value = it.egsCode || '';
     document.getElementById('itemMinStock').value = it.minStock || 0;
     document.getElementById('itemBaseUnitType').value = it.baseUnitType || 'weight';
     (it.units || []).forEach(u => addUnitRow(u));
@@ -5764,6 +5869,7 @@ function openItemModal(itemId){
     document.getElementById('itemName').value = '';
     document.getElementById('itemCategory').value = '';
     document.getElementById('itemLocation').value = '';
+    document.getElementById('itemEgsCode').value = '';
     document.getElementById('itemMinStock').value = 0;
     document.getElementById('itemBaseUnitType').value = 'weight';
     document.getElementById('itemInitialQty').value = 0;
@@ -5787,6 +5893,7 @@ async function saveItem(){
     name,
     category: document.getElementById('itemCategory').value.trim(),
     location: document.getElementById('itemLocation').value.trim(),
+    egsCode: document.getElementById('itemEgsCode').value.trim(),
     minStock: parseFloat(document.getElementById('itemMinStock').value) || 0,
     baseUnitType: document.getElementById('itemBaseUnitType').value,
     units,
@@ -6796,6 +6903,7 @@ function openPartyModal(id){
     document.getElementById('partyName').value = p.name || '';
     document.getElementById('partyPhone').value = p.phone || '';
     document.getElementById('partyAddress').value = p.address || '';
+    document.getElementById('partyTaxId').value = p.taxId || '';
     document.getElementById('partyWarehouseId').value = p.warehouseId || '';
     document.getElementById('partyCreditLimit').value = p.creditLimit || 0;
   }else{
@@ -6804,6 +6912,7 @@ function openPartyModal(id){
     document.getElementById('partyName').value = '';
     document.getElementById('partyPhone').value = '';
     document.getElementById('partyAddress').value = '';
+    document.getElementById('partyTaxId').value = '';
     document.getElementById('partyWarehouseId').value = '';
     document.getElementById('partyCreditLimit').value = 0;
   }
@@ -6842,6 +6951,7 @@ async function saveParty(){
     name,
     phone: document.getElementById('partyPhone').value.trim(),
     address: document.getElementById('partyAddress').value.trim(),
+    taxId: document.getElementById('partyTaxId').value.trim(),
     warehouseId: document.getElementById('partyWarehouseId').value || ''
   };
   if(currentPartyTab === 'customers') payload.creditLimit = parseFloat(document.getElementById('partyCreditLimit').value) || 0;
@@ -9159,6 +9269,7 @@ function renderSalesInvoicesTable(){
       <td>
         <span class="btn-icon" title="تفاصيل الأصناف" onclick="toggleInvoiceRowDetails('sale-${inv.id}')">👁</span>
         <span class="btn-icon" title="طباعة" onclick="printInvoice('${inv.id}')">🖨</span>
+        <span class="btn-icon" title="معاينة الفاتورة الإلكترونية (ETA) — مسوّدة" onclick="previewEtaInvoice('${inv.id}')">🧾</span>
         <span class="btn-icon" title="إرسال واتساب للعميل" onclick="sendInvoiceWhatsApp('${inv.id}')">📱</span>
         ${inv.paymentType === 'credit' && !inv.collected ? `<span class="btn-icon" title="تعليم كمُحصّلة" onclick="markInvoiceCollected('${inv.id}')">✅</span>` : ''}
         ${invoiceActionIcons('sale', inv.id)}
@@ -9302,6 +9413,114 @@ function closeDueInvoiceAndOpenSales(invId){
   goPage('sales');
   switchSTab('invoices');
   setTimeout(() => toggleInvoiceRowDetails('sale-' + invId), 300);
+}
+
+/* ---------- بناء مستند الفاتورة الإلكترونية (ETA) من فاتورة بيع موجودة — مسوّدة غير موقّعة ----------
+   ⚠️ ملحوظة مهمة: أسماء الحقول هنا مبنية على الفهم العام لمواصفات ETA وقت كتابة الكود، ولازم تتأكد
+   منها حرفيًا مقابل آخر نسخة من مستندات الـSDK الرسمية (sdk.invoicing.eta.gov.eg) قبل الاعتماد عليها
+   في الإرسال الفعلي — أي اختلاف في اسم حقل أو ترتيبه بيخلي ETA يرفض المستند كامل. الدالة دي بترجع
+   الكائن (Object) بس من غير توقيع وبدون إرسال؛ التوقيع والإرسال خطوة لاحقة منفصلة.
+   بترجع { ok:true, document } لو البيانات مكتملة، أو { ok:false, errors:[...] } لو ناقصة حاجة أساسية. */
+function buildEtaInvoiceDocument(invId){
+  const inv = allSalesInvoices.find(i => i.id === invId);
+  if(!inv) return { ok:false, errors:['الفاتورة غير موجودة'] };
+
+  const errors = [];
+  const cfg = companySettingsCache.etaConfig || {};
+  if(!companySettingsCache.tax) errors.push('الرقم الضريبي للشركة غير مسجّل (بيانات الشركة)');
+  if(!cfg.activityCode) errors.push('كود النشاط غير مسجّل (إعدادات ETA)');
+  if(!cfg.governorate || !cfg.regionCity || !cfg.street || !cfg.buildingNumber) errors.push('عنوان المنشأة غير مكتمل (إعدادات ETA)');
+
+  const customer = allCustomers.find(c => c.id === inv.customerId);
+  const isB2B = !!(customer && customer.taxId);
+  if(!isB2B && !customer) errors.push('لا يمكن إصدار فاتورة إلكترونية لعميل نقدي بدون بيانات مسجّلة — سجّل عميل بالاسم والعنوان على الأقل');
+
+  const missingEgs = [];
+  inv.items.forEach(it => {
+    const fullItem = allItems.find(a => a.id === it.itemId);
+    if(!it.isManual && (!fullItem || !fullItem.egsCode)) missingEgs.push(it.name);
+  });
+  if(missingEgs.length) errors.push('الأصناف دي محتاجة كود EGS قبل الإصدار: ' + missingEgs.join('، '));
+
+  if(errors.length) return { ok:false, errors };
+
+  const dt = inv.date && inv.date.toDate ? inv.date.toDate() : new Date();
+  const vatRatePercent = inv.subtotal > 0 ? Math.round(((inv.vat || 0) / ((inv.subtotal||0) - (inv.discount||0)) * 100) * 100) / 100 : 0;
+
+  const invoiceLines = inv.items.map((it, idx) => {
+    const fullItem = allItems.find(a => a.id === it.itemId);
+    const lineNetTotal = it.qty * it.price;
+    const lineVat = lineNetTotal * (vatRatePercent / 100);
+    return {
+      description: it.name,
+      itemType: 'EGS',
+      itemCode: fullItem ? (fullItem.egsCode || '') : 'MANUAL',
+      unitType: (it.baseUnitType === 'count') ? 'EA' : 'KGM', // TODO: تأكيد كود الوحدة الصحيح من قائمة ETA
+      quantity: it.qty,
+      internalCode: String(idx + 1),
+      salesTotal: lineNetTotal,
+      total: lineNetTotal + lineVat,
+      valueDifference: 0,
+      totalTaxableFees: 0,
+      netTotal: lineNetTotal,
+      itemsDiscount: 0,
+      unitValue: { currencySold: 'EGP', amountEGP: it.price },
+      taxableItems: [{ taxType: 'T1', amount: lineVat, subType: 'V009', rate: vatRatePercent }], // T1 = ضريبة قيمة مضافة عامة — تأكد من الكود الفرعي المناسب لنشاطك
+    };
+  });
+
+  const etaDoc = {
+    issuer: {
+      type: 'B',
+      id: companySettingsCache.tax,
+      name: companySettingsCache.name || '',
+      address: {
+        branchID: cfg.branchId || '0',
+        country: 'EG',
+        governate: cfg.governorate,
+        regionCity: cfg.regionCity,
+        street: cfg.street,
+        buildingNumber: cfg.buildingNumber,
+        postalCode: cfg.postalCode || '',
+        floor: cfg.floor || '',
+        room: cfg.room || '',
+        landmark: cfg.landmark || '',
+        additionalInformation: cfg.additionalInfo || '',
+      },
+    },
+    receiver: {
+      type: isB2B ? 'B' : 'P',
+      id: isB2B ? customer.taxId : '',
+      name: inv.customerName,
+      address: { country: 'EG', governate: '', regionCity: '', street: customer ? (customer.address || '') : '', buildingNumber: '' },
+    },
+    documentType: 'I',
+    documentTypeVersion: '1.0',
+    dateTimeIssued: dt.toISOString(),
+    taxpayerActivityCode: cfg.activityCode,
+    internalID: String(inv.number),
+    invoiceLines,
+    totalSalesAmount: inv.subtotal,
+    totalDiscountAmount: inv.discount || 0,
+    netAmount: (inv.subtotal || 0) - (inv.discount || 0),
+    taxTotals: [{ taxType: 'T1', amount: inv.vat || 0 }],
+    totalAmount: inv.total,
+    extraDiscountAmount: 0,
+  };
+
+  return { ok:true, document: etaDoc };
+}
+
+/* معاينة مستند ETA (JSON) لفاتورة بيع قبل الإرسال الفعلي — بتساعدك تتأكد من اكتمال البيانات دلوقتي
+   من غير ما تحتاج جسر التوقيع يكون جاهز. الفاتورة دي مسوّدة للمراجعة فقط، مش مستند رسمي مُوقّع. */
+function previewEtaInvoice(invId){
+  const result = buildEtaInvoiceDocument(invId);
+  if(!result.ok){
+    alert('البيانات ناقصة قبل إصدار فاتورة إلكترونية:\n\n- ' + result.errors.join('\n- '));
+    return;
+  }
+  const win = window.open('', '_blank');
+  win.document.write('<pre style="direction:ltr; text-align:left; font-size:13px; white-space:pre-wrap;">' + escapeHtml(JSON.stringify(result.document, null, 2)) + '</pre>');
 }
 
 function printInvoice(invId){
